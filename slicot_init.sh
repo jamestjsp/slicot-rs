@@ -4,7 +4,7 @@
 git init
 
 # 2. Add the SLICOT-Reference as a submodule
-git submodule add https://github.com/SLICOT/SLICOT-Reference.git reference
+git submodule add git@github.com:jamestjsp/SLICOT_C.git reference
 
 # 3. Create initial Rust project structure
 cargo init --lib
