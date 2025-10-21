@@ -11,8 +11,16 @@ categories = ["science", "mathematics"]
 
 [dependencies]
 ndarray = "0.15"  # For matrix operations
-blas-src = "0.8"  # BLAS backend
-lapack-src = "0.8"  # LAPACK backend
+num-complex = "0.4"  # Complex number support
+
+# Platform-specific LAPACK backends
+[target.'cfg(target_os = "macos")'.dependencies]
+ndarray-linalg = { version = "0.16", features = [] }  # LAPACK/BLAS wrappers
+accelerate-src = "0.3"  # Use Apple's Accelerate framework on macOS
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+ndarray-linalg = { version = "0.16", features = ["openblas"] }  # LAPACK/BLAS wrappers
+openblas-src = { version = "0.10", default-features = false, features = ["cblas", "system"] }  # OpenBLAS backend
 
 [dev-dependencies]
 approx = "0.5"  # For floating-point comparisons in tests
