@@ -62,7 +62,7 @@ fn test_ab01md_tolerance_parameter() {
     assert!(result.is_ok());
 
     let (ncont, _, _) = result.unwrap();
-    assert!(ncont >= 0 && ncont <= 2);
+    assert!((0..=2).contains(&ncont));
 }
 
 #[test]
@@ -191,9 +191,7 @@ fn test_sb01bd_diagnostics() {
     assert!(result.is_ok());
 
     let res = result.unwrap();
-    assert!(res.assigned_count >= 0);
-    assert!(res.fixed_count >= 0);
-    assert!(res.uncontrollable_count >= 0);
+    // Counts are usize, so they're always >= 0
     assert!(res.assigned_count + res.uncontrollable_count <= 2);
 }
 
@@ -235,8 +233,8 @@ fn test_sb01bd_alpha_threshold_continuous() {
     let result = sb01bd(SystemType::Continuous, &a, &b, &desired, 0.0, None);
     assert!(result.is_ok());
 
-    let res = result.unwrap();
-    assert!(res.fixed_count >= 0, "Should have some fixed eigenvalues");
+    let _res = result.unwrap();
+    // Note: fixed_count may be 0 depending on the system characteristics
 }
 
 #[test]

@@ -310,12 +310,12 @@ mod tests_mb04tu {
         // The transformation is: x_new = c*y_old - s*x_old, y_new = c*x_old + s*y_old
         // This is NOT a pure orthogonal transformation, so we can't expect norms to swap directly
         // Instead, just verify the transformation was applied
-        let x_modified = vec![
+        let x_modified = [
             0.6 * 1.0 - 0.8 * 3.0,
             0.6 * 2.0 - 0.8 * 4.0,
             0.6 * 3.0 - 0.8 * 5.0,
         ];
-        let y_modified = vec![
+        let y_modified = [
             0.6 * 3.0 + 0.8 * 1.0,
             0.6 * 4.0 + 0.8 * 2.0,
             0.6 * 5.0 + 0.8 * 3.0,

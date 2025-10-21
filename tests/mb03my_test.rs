@@ -79,7 +79,7 @@ fn test_integration_identical_magnitudes() {
 #[test]
 fn test_integration_slice_from_larger_array() {
     // Test using a slice of a larger array (common use case)
-    let large_array = vec![10.0, 20.0, 1.5, 30.0, 40.0, 2.5, 50.0];
+    let large_array = [10.0, 20.0, 1.5, 30.0, 40.0, 2.5, 50.0];
     let slice = &large_array[2..6]; // [1.5, 30.0, 40.0, 2.5]
     assert_eq!(mb03my(slice), Some(1.5));
 }
@@ -103,7 +103,7 @@ fn test_integration_slicot_mb03md_usage() {
     // Simulating the call from MB03MD.f line 237:
     // THETA = MB03MY( N, Q, 1 )
     // where Q contains diagonal elements of a bidiagonal matrix
-    let q = vec![4.5, 3.2, 1.8, 5.1, 2.3];
+    let q = [4.5, 3.2, 1.8, 5.1, 2.3];
     let n = q.len();
 
     // In Fortran: MB03MY(N, Q, 1) means N elements, starting at Q, increment 1

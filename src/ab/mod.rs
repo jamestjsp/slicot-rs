@@ -190,11 +190,7 @@ fn householder_vector(x: &mut Array1<f64>) -> (f64, f64) {
 
     let alpha = x[0];
     let sigma = if n > 1 {
-        x.slice(s![1..])
-            .iter()
-            .map(|v| v * v)
-            .sum::<f64>()
-            .sqrt()
+        x.slice(s![1..]).iter().map(|v| v * v).sum::<f64>().sqrt()
     } else {
         0.0
     };

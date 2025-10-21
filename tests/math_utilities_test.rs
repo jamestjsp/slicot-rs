@@ -25,13 +25,13 @@ fn test_mb04tu_givens_rotation_identity() {
 fn test_mb04tu_large_vectors() {
     // Test with larger vectors
     let n = 100;
-    let mut x: Vec<f64> = (1..=n as i32).map(|i| i as f64).collect();
-    let mut y: Vec<f64> = (n as i32 + 1..=2 * n as i32).map(|i| i as f64).collect();
+    let mut x: Vec<f64> = (1..=n).map(|i| i as f64).collect();
+    let mut y: Vec<f64> = (n + 1..=2 * n).map(|i| i as f64).collect();
 
     let c = 0.6;
     let s = 0.8;
 
-    mb04tu(n as i32, &mut x, 1, &mut y, 1, c, s);
+    mb04tu(n, &mut x, 1, &mut y, 1, c, s);
 
     // Verify first element transformation
     let x0_expected = 0.6 * (n as f64 + 1.0) - 0.8 * 1.0;
