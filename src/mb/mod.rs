@@ -167,3 +167,197 @@ mod tests {
         assert_eq!(mb03my(&data), Some(2.0));
     }
 }
+
+/// Performs a row-permuted Givens transformation on two vectors.
+///
+/// This function applies a Givens rotation followed by a row permutation to two
+/// vectors X and Y. For each element i, it computes:
+///
+/// ```text
+/// x_new := c*y[i] - s*x[i]
+/// y_new := c*x[i] + s*y[i]
+/// x[i] := x_new
+/// y[i] := y_new
+/// ```
+///
+/// This is equivalent to applying a Givens rotation matrix followed by swapping
+/// the rows. It's a key building block for pencil reduction algorithms.
+///
+/// # Arguments
+///
+/// * `n` - Number of elements to transform (if n <= 0, returns immediately)
+/// * `x` - First vector array (modified in-place)
+/// * `incx` - Stride between consecutive X elements (can be negative for reverse iteration)
+/// * `y` - Second vector array (modified in-place)
+/// * `incy` - Stride between consecutive Y elements (can be negative for reverse iteration)
+/// * `c` - Cosine coefficient (typically satisfies c² + s² = 1)
+/// * `s` - Sine coefficient (typically satisfies c² + s² = 1)
+///
+/// # Examples
+///
+/// ```
+/// use slicot_rs::mb::mb04tu;
+///
+/// let mut x = vec![1.0, 2.0, 3.0];
+/// let mut y = vec![4.0, 5.0, 6.0];
+/// let c = 0.8;
+/// let s = 0.6;
+///
+/// mb04tu(3, &mut x, 1, &mut y, 1, c, s);
+/// // X and Y are now transformed
+/// ```
+///
+/// # SLICOT Reference
+///
+/// This function is a Rust translation of the SLICOT Fortran routine `MB04TU`.
+///
+/// **Original Purpose**: Perform row-permuted Givens transformations on vectors.
+/// Similar to BLAS routine DROT but includes row permutation.
+///
+/// **Differences from Fortran version**:
+/// - Takes slices instead of raw pointers
+/// - Uses 0-based indexing internally
+/// - Validates slice bounds and panics on out-of-bounds access
+///
+/// **Reference Implementation**: `reference/src/MB04TU.f`
+pub fn mb04tu(n: i32, x: &mut [f64], incx: i32, y: &mut [f64], incy: i32, c: f64, s: f64) {
+    if n <= 0 {
+        return;
+    }
+
+    // Fast path for unit strides
+    if incx == 1 && incy == 1 {
+        for i in 0..(n as usize) {
+            let temp = c * y[i] - s * x[i];
+            y[i] = c * x[i] + s * y[i];
+            x[i] = temp;
+        }
+    } else {
+        // General path for arbitrary strides
+        let mut ix = if incx < 0 {
+            ((-n + 1) * incx) as usize
+        } else {
+            0
+        };
+
+        let mut iy = if incy < 0 {
+            ((-n + 1) * incy) as usize
+        } else {
+            0
+        };
+
+        for _ in 0..(n as usize) {
+            debug_assert!(ix < x.len(), "Index out of bounds for x");
+            debug_assert!(iy < y.len(), "Index out of bounds for y");
+
+            let temp = c * y[iy] - s * x[ix];
+            y[iy] = c * x[ix] + s * y[iy];
+            x[ix] = temp;
+
+            ix = (ix as i32 + incx) as usize;
+            iy = (iy as i32 + incy) as usize;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests_mb04tu {
+    use super::*;
+
+    #[test]
+    fn test_mb04tu_unit_stride() {
+        let mut x = vec![1.0, 2.0, 3.0];
+        let mut y = vec![4.0, 5.0, 6.0];
+        let c = 0.8;
+        let s = 0.6;
+
+        mb04tu(3, &mut x, 1, &mut y, 1, c, s);
+
+        // Verify transformation
+        assert!((x[0] - (0.8 * 4.0 - 0.6 * 1.0)).abs() < 1e-14);
+        assert!((y[0] - (0.8 * 1.0 + 0.6 * 4.0)).abs() < 1e-14);
+    }
+
+    #[test]
+    fn test_mb04tu_zero_n() {
+        let mut x = vec![1.0, 2.0];
+        let mut y = vec![3.0, 4.0];
+        let x_orig = x.clone();
+        let y_orig = y.clone();
+
+        mb04tu(0, &mut x, 1, &mut y, 1, 0.5, 0.5);
+
+        // Arrays should be unchanged
+        assert_eq!(x, x_orig);
+        assert_eq!(y, y_orig);
+    }
+
+    #[test]
+    fn test_mb04tu_orthogonal_rotation() {
+        // Test with orthogonal rotation c² + s² = 1
+        let mut x = vec![3.0, 4.0, 5.0];
+        let mut y = vec![1.0, 2.0, 3.0];
+        let c = 0.6;
+        let s = 0.8;
+
+        // Verify orthogonality
+        let orthogonal_constraint = (c * c + s * s) - 1.0_f64;
+        assert!(orthogonal_constraint.abs() < 1e-14);
+
+        mb04tu(3, &mut x, 1, &mut y, 1, c, s);
+
+        // MB04TU applies rotation + row permutation
+        // The transformation is: x_new = c*y_old - s*x_old, y_new = c*x_old + s*y_old
+        // This is NOT a pure orthogonal transformation, so we can't expect norms to swap directly
+        // Instead, just verify the transformation was applied
+        let x_modified = vec![
+            0.6 * 1.0 - 0.8 * 3.0,
+            0.6 * 2.0 - 0.8 * 4.0,
+            0.6 * 3.0 - 0.8 * 5.0,
+        ];
+        let y_modified = vec![
+            0.6 * 3.0 + 0.8 * 1.0,
+            0.6 * 4.0 + 0.8 * 2.0,
+            0.6 * 5.0 + 0.8 * 3.0,
+        ];
+
+        for i in 0..3 {
+            assert!((x[i] - x_modified[i]).abs() < 1e-14);
+            assert!((y[i] - y_modified[i]).abs() < 1e-14);
+        }
+    }
+
+    #[test]
+    fn test_mb04tu_single_element() {
+        let mut x = vec![5.0];
+        let mut y = vec![10.0];
+        let c = 0.8;
+        let s = 0.6;
+
+        mb04tu(1, &mut x, 1, &mut y, 1, c, s);
+
+        assert!((x[0] - (0.8 * 10.0 - 0.6 * 5.0)).abs() < 1e-14);
+        assert!((y[0] - (0.8 * 5.0 + 0.6 * 10.0)).abs() < 1e-14);
+    }
+
+    #[test]
+    fn test_mb04tu_stride_2() {
+        // Stride of 2: take every other element
+        let mut x = vec![1.0, 99.0, 2.0, 99.0, 3.0];
+        let mut y = vec![4.0, 99.0, 5.0, 99.0, 6.0];
+        let c = 0.8;
+        let s = 0.6;
+
+        mb04tu(3, &mut x, 2, &mut y, 2, c, s);
+
+        // Check that elements at stride positions were transformed
+        assert!((x[0] - (0.8 * 4.0 - 0.6 * 1.0)).abs() < 1e-14);
+        assert!((y[0] - (0.8 * 1.0 + 0.6 * 4.0)).abs() < 1e-14);
+        assert!((x[2] - (0.8 * 5.0 - 0.6 * 2.0)).abs() < 1e-14);
+        assert!((y[2] - (0.8 * 2.0 + 0.6 * 5.0)).abs() < 1e-14);
+
+        // Check that skipped elements unchanged
+        assert_eq!(x[1], 99.0);
+        assert_eq!(y[1], 99.0);
+    }
+}

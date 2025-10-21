@@ -8,8 +8,8 @@
 //! # Organization
 //!
 //! The library is organized into modules corresponding to SLICOT chapters:
-//! - `mb`: Mathematical routines - Basic operations
-//! - `ma`: Mathematical routines - Advanced operations
+//! - `mb`: Mathematical routines - Basic operations (MB03MY, MB04TU, etc.)
+//! - `ma`: Mathematical routines - Advanced operations (MA02FD, MA01AD, etc.)
 //! - Additional chapters will be added as routines are translated
 //!
 //! # Example
@@ -22,4 +22,5 @@
 //! assert_eq!(min_abs, Some(0.5));
 //! ```
 
+pub mod ma;
 pub mod mb;
