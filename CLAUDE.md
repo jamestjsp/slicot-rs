@@ -47,8 +47,26 @@ cargo check
 # Format code
 cargo fmt
 
+# Check formatting without modifying files
+cargo fmt --check
+
 # Lint code
 cargo clippy
+
+# Lint with strict warnings (treat warnings as errors)
+cargo clippy --all-targets --all-features -- -D warnings
+
+# Combined quality check (run before committing)
+cargo clippy --all-targets --all-features -- -D warnings && cargo fmt --check && cargo test
+```
+
+### Clippy Configuration
+
+The project uses `clippy.toml` for clippy lint configuration:
+- **warn-on-all-wildcard-imports**: Enabled to catch overly broad imports
+- **cognitive-complexity-threshold**: Set to 30 for complex functions
+
+**Important**: Clippy configuration must be in `clippy.toml`, not in `Cargo.toml` (which only accepts dependency configuration).
 ```
 
 ## Architecture
@@ -147,14 +165,19 @@ Per the user's workflow preferences:
 4. **Test-first approach**: If tests are broken or cumbersome, fix them in a separate branch/PR before resuming the original task
 5. **Quality checks**: Run linter and type checker before committing:
    ```bash
-   cargo fmt --check   # Check formatting
-   cargo clippy        # Lint code
-   cargo test          # Run tests
+   # Comprehensive pre-commit check (recommended)
+   cargo clippy --all-targets --all-features -- -D warnings && cargo fmt --check && cargo test
+
+   # Or run individually:
+   cargo fmt --check                                      # Check formatting
+   cargo clippy --all-targets --all-features -- -D warnings  # Lint code (strict)
+   cargo test                                             # Run tests
    ```
 
 ## Key Files
 
 - **Cargo.toml**: Package configuration and dependencies
+- **clippy.toml**: Clippy linter configuration (must be separate from Cargo.toml)
 - **src/lib.rs**: Library entry point (currently minimal - to be expanded)
 - **reference/**: Git submodule containing original SLICOT Fortran implementation
 - **slicot_init.sh**: Initialization script used to set up the repository structure
