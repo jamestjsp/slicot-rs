@@ -10,6 +10,8 @@
 //! The library is organized into modules corresponding to SLICOT chapters:
 //! - `mb`: Mathematical routines - Basic operations (MB03MY, MB04TU, etc.)
 //! - `ma`: Mathematical routines - Advanced operations (MA02FD, MA01AD, etc.)
+//! - `ab`: Analysis routines (AB01MD - controllability decomposition, etc.)
+//! - `sb`: Synthesis routines (SB01BD - pole placement, etc.)
 //! - Additional chapters will be added as routines are translated
 //!
 //! # Example
@@ -22,5 +24,7 @@
 //! assert_eq!(min_abs, Some(0.5));
 //! ```
 
+pub mod ab;
 pub mod ma;
 pub mod mb;
+pub mod sb;
