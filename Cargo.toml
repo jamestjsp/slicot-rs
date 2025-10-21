@@ -2,7 +2,7 @@
 name = "slicot-rs"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["James Joseph <jamestjsp@outlook.com>"]
 description = "Rust translation of SLICOT - Subroutine Library in Systems and Control Theory"
 repository = "https://github.com/jamestjsp/slicot-rs"
 license = "BSD-3-Clause"  # Check SLICOT's actual license
@@ -12,6 +12,7 @@ categories = ["science", "mathematics"]
 [dependencies]
 ndarray = "0.15"  # For matrix operations
 num-complex = "0.4"  # Complex number support
+lapack-sys = "0.14"  # Raw LAPACK FFI bindings for DGEHRD
 
 # Platform-specific LAPACK backends
 [target.'cfg(target_os = "macos")'.dependencies]
