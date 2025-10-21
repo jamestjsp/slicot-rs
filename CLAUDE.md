@@ -53,6 +53,39 @@ cargo clippy
 
 ## Architecture
 
+### Module Organization
+
+The Rust implementation mirrors SLICOT's chapter-based organization:
+- **src/mb/**: Mathematical routines - Basic operations (chapter MB)
+- **src/ma/**: Mathematical routines - Advanced operations (chapter MA)
+- **src/ab/**: Analysis and Benchmarks
+- **src/sb/**: Synthesis and Benchmarks
+- **src/tb/**: Transformation and Benchmarks
+- etc. (following SLICOT's chapter structure)
+
+Each chapter is a separate module with its own `mod.rs` file.
+
+### Naming Conventions
+
+- **Function names**: Keep original SLICOT names in lowercase (e.g., `mb03my`, `ab01md`)
+  - Preserves traceability to original Fortran implementation
+  - Makes cross-referencing documentation easier
+  - Familiar to users of original SLICOT library
+
+### Implementation Guidelines
+
+1. **Edge Cases**: Return `Option<T>` when operations may not be meaningful
+   - Example: Return `Option<f64>` for operations on potentially empty arrays (None for empty)
+   - Provides compile-time safety without runtime panics
+
+2. **Array Parameters**: Use Rust slices instead of implementing stride parameters
+   - Simplifies API (no `incx`, `incy` stride parameters)
+   - More idiomatic Rust
+   - Users can create slices with strides if needed using ndarray's slice functionality
+
+3. **Memory Layout**: Default to Rust's row-major layout unless interfacing with BLAS/LAPACK
+   - Use `.reversed_axes()` or `.t()` when calling column-major routines
+
 ### Dependencies
 - **ndarray** (0.15): Multi-dimensional array operations, core data structure for matrices
 - **blas-src** (0.8): BLAS backend for linear algebra operations
