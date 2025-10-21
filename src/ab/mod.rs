@@ -226,35 +226,21 @@ fn apply_householder_similarity(a: &mut Array2<f64>, v: &Array1<f64>, tau: f64) 
         return;
     }
 
-    // w := A*v
-    let mut w: Array1<f64> = Array1::zeros(n);
-    for i in 0..n {
-        for j in 0..n {
-            w[i] += a[(i, j)] * v[j];
-        }
-    }
+    // w := A*v (matrix-vector multiplication using BLAS)
+    let w: Array1<f64> = a.dot(v);
 
-    // A := A - tau*v*w'
-    for i in 0..n {
-        for j in 0..n {
-            a[(i, j)] -= tau * v[i] * w[j];
-        }
-    }
+    // A := A - tau*v*w' (rank-1 update using outer product)
+    let v_col = v.view().into_shape((n, 1)).unwrap();
+    let w_row = w.view().into_shape((1, n)).unwrap();
+    *a -= &(v_col.dot(&w_row) * tau);
 
-    // w := A'*v
-    let mut w: Array1<f64> = Array1::zeros(n);
-    for i in 0..n {
-        for j in 0..n {
-            w[i] += a[(j, i)] * v[j];
-        }
-    }
+    // w := A'*v (matrix transpose-vector multiplication using BLAS)
+    let w: Array1<f64> = a.t().dot(v);
 
-    // A := A - tau*w*v'
-    for i in 0..n {
-        for j in 0..n {
-            a[(i, j)] -= tau * w[i] * v[j];
-        }
-    }
+    // A := A - tau*w*v' (rank-1 update using outer product)
+    let w_col = w.view().into_shape((n, 1)).unwrap();
+    let v_row = v.view().into_shape((1, n)).unwrap();
+    *a -= &(w_col.dot(&v_row) * tau);
 }
 
 /// Apply Householder reflector from left: A(start:, start:) := H*A(start:, start:)
@@ -275,20 +261,15 @@ fn apply_householder_left(a: &mut Array2<f64>, start: usize, col: usize, tau: f6
         }
     }
 
-    // w := A'[start:, start:] * v
-    let mut w: Array1<f64> = Array1::zeros(n - start);
-    for i in start..n {
-        for j in start..n {
-            w[i - start] += a[(j, i)] * v[j - start];
-        }
-    }
+    // w := A'[start:, start:] * v (transpose matrix-vector multiplication using BLAS)
+    let a_block = a.slice(s![start.., start..]);
+    let w: Array1<f64> = a_block.t().dot(&v);
 
-    // A[start:, start:] := A[start:, start:] - tau*v*w'
-    for i in 0..m {
-        for j in start..n {
-            a[(start + i, j)] -= tau * v[i] * w[j - start];
-        }
-    }
+    // A[start:, start:] := A[start:, start:] - tau*v*w' (rank-1 update using outer product)
+    let v_col = v.view().into_shape((m, 1)).unwrap();
+    let w_row = w.view().into_shape((1, n - start)).unwrap();
+    let mut a_block = a.slice_mut(s![start.., start..]);
+    a_block -= &(v_col.dot(&w_row) * tau);
 }
 
 /// Apply Householder reflector from right: A(:, start:) := A(:, start:)*H
@@ -309,20 +290,15 @@ fn apply_householder_right(a: &mut Array2<f64>, start: usize, col: usize, tau: f
         }
     }
 
-    // w := A[start:, start:] * v
-    let mut w: Array1<f64> = Array1::zeros(n);
-    for i in 0..n {
-        for j in 0..m {
-            w[i] += a[(i, start + j)] * v[j];
-        }
-    }
+    // w := A[:, start:] * v (matrix-vector multiplication using BLAS)
+    let a_block = a.slice(s![.., start..]);
+    let w: Array1<f64> = a_block.dot(&v);
 
-    // A[:, start:] := A[:, start:] - tau*w*v'
-    for i in 0..n {
-        for j in 0..m {
-            a[(i, start + j)] -= tau * w[i] * v[j];
-        }
-    }
+    // A[:, start:] := A[:, start:] - tau*w*v' (rank-1 update using outer product)
+    let w_col = w.view().into_shape((n, 1)).unwrap();
+    let v_row = v.view().into_shape((1, m)).unwrap();
+    let mut a_block = a.slice_mut(s![.., start..]);
+    a_block -= &(w_col.dot(&v_row) * tau);
 }
 
 #[cfg(test)]
