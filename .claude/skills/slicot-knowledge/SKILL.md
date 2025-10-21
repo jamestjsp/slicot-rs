@@ -1,6 +1,6 @@
 ---
 name: slicot-knowledge
-description: This skill should be used when working with SLICOT (Subroutine Library In COntrol Theory) routines, translating Fortran 77 to Rust, parsing SLICOT HTML documentation, creating test cases from SLICOT examples, or understanding SLICOT data formats and library organization.
+description: This skill should be used when working with SLICOT (Subroutine Library In Control Theory) routines, translating Fortran 77 to Rust, parsing SLICOT HTML documentation, creating test cases from SLICOT examples, or understanding SLICOT data formats and library organization.
 ---
 
 # SLICOT Knowledge Skill
@@ -18,6 +18,7 @@ Activate this skill when:
 5. **Navigating SLICOT library organization** (chapters, naming conventions)
 6. **Interpreting Fortran READ statements** for test data
 7. **Handling column-major to row-major conversions**
+8. **Planning translation order** using the dependency tree (translate leaves first)
 
 ## SLICOT Overview
 
@@ -425,16 +426,16 @@ For detailed information, consult the bundled reference documentation:
 
 **Use when**: Parsing SLICOT HTML documentation for implementation or testing.
 
-### rust-translation-examples.md
-- Real-world translation examples from slicot-rs project
-- AB01MD: Before/after showing manual loops → BLAS operations
-- SB01BD: Before/after showing placeholder → functional Ackermann's formula
-- Performance comparisons and benchmarks
-- BLAS/LAPACK operation mapping tables
-- Common mistakes and how to avoid them
-- Testing patterns with SLICOT example data
+### routine-dependencies.md
+- Comprehensive dependency tree analysis (Level 0/leaves → Level 1 → Level 2+)
+- Currently implemented routines and their dependency status
+- Missing dependencies blocking existing implementations
+- Translation order recommendations (bottom-up approach)
+- Quick win opportunities and critical path analysis
+- Detailed dependency mappings for specific routines
+- Parallel translation opportunities
 
-**Use when**: Need concrete examples of correct Rust translations, BLAS/LAPACK usage patterns, or want to understand common pitfalls in Fortran-to-Rust translation.
+**Use when**: Planning which SLICOT routines to translate next, understanding routine dependencies, or organizing translation work.
 
 ## Workflow for Translating a SLICOT Routine
 

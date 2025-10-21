@@ -145,19 +145,25 @@ Example: `AB01MD` = Analysis/Benchmark chapter, section 01, variant MD
 
 When translating a SLICOT routine for this project:
 
-1. **Identify BLAS/LAPACK dependencies** in Fortran source (search for `CALL DGEMV`, `CALL DGEEV`, etc.)
-2. **Design the Rust API**:
+1. **Check dependencies first** using the slicot-knowledge skill's `routine-dependencies.md`:
+   - Verify all SLICOT dependencies are already implemented in Rust
+   - Translate leaf routines (Level 0) before routines that depend on them
+   - See dependency tree for recommended translation order
+2. **Identify BLAS/LAPACK dependencies** in Fortran source (search for `CALL DGEMV`, `CALL DGEEV`, etc.)
+3. **Design the Rust API**:
    - Use `Array2<f64>` for matrices, `Array1<f64>` for vectors
    - Return `Result<T, String>` for error handling
    - Keep function names lowercase (e.g., `ab01md`, not `AB01MD`)
-3. **Implement using ndarray/ndarray-linalg**:
+4. **Implement using ndarray/ndarray-linalg**:
    - BLAS operations → ndarray `.dot()` methods
    - LAPACK operations → ndarray-linalg traits (`Eig`, `SVD`, `Solve`)
    - Never use manual nested loops for matrix operations
-4. **Create tests** using data from `reference/doc/*.html` examples
-5. **Run quality checks**: `cargo clippy && cargo fmt --check && cargo test`
+5. **Create tests** using data from `reference/doc/*.html` examples
+6. **Run quality checks**: `cargo clippy && cargo fmt --check && cargo test`
 
 *For detailed translation patterns, BLAS/LAPACK usage examples, and common mistakes, see the slicot-knowledge skill's `rust-translation-examples.md` reference.*
+
+*For dependency tree analysis and translation order planning, see the slicot-knowledge skill's `routine-dependencies.md` reference.*
 
 ## LAPACK Integration
 
