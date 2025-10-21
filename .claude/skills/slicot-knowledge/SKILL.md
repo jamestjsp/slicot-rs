@@ -437,6 +437,17 @@ For detailed information, consult the bundled reference documentation:
 
 **Use when**: Planning which SLICOT routines to translate next, understanding routine dependencies, or organizing translation work.
 
+### lapack-integration-standards.md
+- **MANDATORY**: LAPACK integration requirements and standards
+- Strict guidelines: NEVER use manual algorithms when LAPACK exists
+- FFI binding patterns (DGEHRD, DGEES, DTREXC, DLASV2)
+- Safe wrapper implementation with memory layout handling
+- Performance expectations and benchmarking
+- Common mistakes and how to avoid them
+- Compliance verification checklist
+
+**Use when**: Implementing ANY routine that requires linear algebra operations. Read this FIRST before writing any matrix decomposition, eigenvalue, or factorization code. Non-negotiable for production-quality implementations.
+
 ## Workflow for Translating a SLICOT Routine
 
 ### Step 1: Understand the Routine

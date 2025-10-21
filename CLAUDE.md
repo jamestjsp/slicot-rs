@@ -2,7 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Note**: For comprehensive SLICOT library knowledge, HTML documentation parsing, test data extraction, and Fortran-to-Rust translation patterns, use the **slicot-knowledge** skill. This file focuses on slicot-rs project-specific configuration and conventions.
+> **📊 Implementation Progress**: See [PROGRESS.md](PROGRESS.md) for current routine status and completion tracking.
+
+> **📚 SLICOT Knowledge**: For comprehensive library knowledge, HTML documentation parsing, test data extraction, and Fortran-to-Rust translation patterns, use the **slicot-knowledge** skill.
 
 ## Project Overview
 
@@ -149,21 +151,37 @@ When translating a SLICOT routine for this project:
    - Verify all SLICOT dependencies are already implemented in Rust
    - Translate leaf routines (Level 0) before routines that depend on them
    - See dependency tree for recommended translation order
-2. **Identify BLAS/LAPACK dependencies** in Fortran source (search for `CALL DGEMV`, `CALL DGEEV`, etc.)
-3. **Design the Rust API**:
+
+2. **🚨 CRITICAL: Read LAPACK integration standards** using the slicot-knowledge skill's `lapack-integration-standards.md`:
+   - **MANDATORY**: Use raw LAPACK FFI when Fortran uses LAPACK routines
+   - **NEVER** implement manual algorithms (QR, SVD, Schur, Hessenberg, etc.)
+   - **NO SHORTCUTS**: Simplified algorithms are not acceptable
+   - Follow the FFI binding patterns exactly
+   - Verify performance is 10%+ better than manual implementations
+
+3. **Identify BLAS/LAPACK dependencies** in Fortran source:
+   - Search for `CALL DGEMV`, `CALL DGEEV`, `CALL DGEHRD`, `CALL DGEES`, etc.
+   - Map each LAPACK call to appropriate Rust implementation (ndarray-linalg or raw FFI)
+
+4. **Design the Rust API**:
    - Use `Array2<f64>` for matrices, `Array1<f64>` for vectors
    - Return `Result<T, String>` for error handling
    - Keep function names lowercase (e.g., `ab01md`, not `AB01MD`)
-4. **Implement using ndarray/ndarray-linalg**:
+
+5. **Implement using LAPACK integration**:
+   - High-level operations → ndarray-linalg traits (`Eig`, `SVD`, `Solve`)
+   - Specific LAPACK routines → raw FFI with safe wrappers (see `lapack-integration-standards.md`)
    - BLAS operations → ndarray `.dot()` methods
-   - LAPACK operations → ndarray-linalg traits (`Eig`, `SVD`, `Solve`)
-   - Never use manual nested loops for matrix operations
-5. **Create tests** using data from `reference/doc/*.html` examples
-6. **Run quality checks**: `cargo clippy && cargo fmt --check && cargo test`
+   - **Never use manual nested loops for matrix operations**
 
-*For detailed translation patterns, BLAS/LAPACK usage examples, and common mistakes, see the slicot-knowledge skill's `rust-translation-examples.md` reference.*
+6. **Create tests** using data from `reference/doc/*.html` examples
 
-*For dependency tree analysis and translation order planning, see the slicot-knowledge skill's `routine-dependencies.md` reference.*
+7. **Run quality checks**: `cargo clippy && cargo fmt --check && cargo test`
+
+**Reference Documentation:**
+- *LAPACK integration*: See `lapack-integration-standards.md` in slicot-knowledge skill (**READ THIS FIRST**)
+- *Translation patterns*: See `rust-translation-examples.md` in slicot-knowledge skill
+- *Dependency tree*: See `routine-dependencies.md` in slicot-knowledge skill
 
 ## LAPACK Integration
 
