@@ -1,0 +1,18 @@
+[package]
+name = "slicot-rs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "Rust translation of SLICOT - Subroutine Library in Systems and Control Theory"
+repository = "https://github.com/yourusername/slicot-rs"
+license = "BSD-3-Clause"  # Check SLICOT's actual license
+keywords = ["control-theory", "linear-algebra", "systems", "slicot"]
+categories = ["science", "mathematics"]
+
+[dependencies]
+ndarray = "0.15"  # For matrix operations
+blas-src = "0.8"  # BLAS backend
+lapack-src = "0.8"  # LAPACK backend
+
+[dev-dependencies]
+approx = "0.5"  # For floating-point comparisons in tests
