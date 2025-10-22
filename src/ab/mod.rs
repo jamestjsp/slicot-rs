@@ -355,17 +355,17 @@ fn apply_householder_similarity(a: &mut Array2<f64>, v: &Array1<f64>, tau: f64) 
 ///
 /// For UPLO='L' (lower block diagonal):
 /// - A = [ A1      0  ]
-///       [ B2*C1  A2 ]
+///   [ B2*C1  A2 ]
 /// - B = [  B1   ]
-///       [ B2*D1 ]
+///   [ B2*D1 ]
 /// - C = [ D2*C1  C2 ]
 /// - D = [ D2*D1 ]
 ///
 /// For UPLO='U' (upper block diagonal):
 /// - A = [ A2  B2*C1 ]
-///       [ 0    A1  ]
+///   [ 0    A1  ]
 /// - B = [ B2*D1 ]
-///       [  B1   ]
+///   [  B1   ]
 /// - C = [ C2  D2*C1 ]
 /// - D = [ D2*D1 ]
 ///
@@ -382,6 +382,7 @@ fn apply_householder_similarity(a: &mut Array2<f64>, v: &Array1<f64>, tau: f64) 
 /// - Uses ndarray for all matrix operations
 ///
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 pub fn ab05md(
     uplo: char,
     a1: &Array2<f64>,
