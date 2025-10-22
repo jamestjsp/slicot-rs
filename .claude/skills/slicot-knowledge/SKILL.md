@@ -502,13 +502,14 @@ For detailed information, consult the bundled reference documentation:
 
 ### Challenge 2: 1-Based vs 0-Based Indexing
 
-**Problem**: Fortran uses 1-based indexing, Rust uses 0-based.
+**Problem**: Fortran uses 1-based indexing, Rust uses 0-based. This is more subtle than simple loop variable conversion.
 
-**Solution**: Adjust all array indices by -1.
+#### Simple Case: Loop Variables
 
 ```fortran
 DO I = 1, N
    A(I,J) = ...
+END DO
 ```
 
 ```rust
@@ -516,6 +517,72 @@ for i in 0..n {
     a[(i, j)] = ...;
 }
 ```
+
+#### Complex Case: Variables Representing Fortran Array Indices ⚠️
+
+When Fortran code uses variables like `K` to represent array indices (not loop counters), careful mapping is required:
+
+**Fortran Code:**
+```fortran
+K = DP          ! K is a Fortran array index
+ALPHA = DWORK(K+1) / DWORK(K)  ! Access DWORK(K) and DWORK(K+1)
+DWORK(I) = DWORK(I) - ALPHA * DWORK(I-1)
+```
+
+**Common Mistake:**
+```rust
+// WRONG: Direct translation loses the 1-based conceptual model
+let k = dp;
+let alpha = dwork[k] / dwork[k - 1];  // ❌ This is incorrect!
+```
+
+**Correct Mapping:**
+```rust
+// RIGHT: Treat k as a Fortran 1-based index, convert each access
+let k = dp;  // k represents Fortran array position
+// DWORK(K) in Fortran = dwork[k-1] in Rust (0-based)
+// DWORK(K+1) in Fortran = dwork[k] in Rust
+let alpha = dwork[k] / dwork[k - 1];  // ✓ Correct
+
+// Update loop: Fortran DO I = K, 2, -2: DWORK(I) = DWORK(I) - ALPHA*DWORK(I-1)
+let mut i = k;
+while i >= 2 {
+    dwork[i - 1] -= alpha * dwork[i - 2];  // Convert both indices
+    i -= 2;
+}
+```
+
+#### Workspace Offset Conversion ⚠️
+
+When Fortran calculates workspace offsets using 1-based indices:
+
+**Fortran Code:**
+```fortran
+K2 = DP + 2  ! Workspace offset calculated as Fortran 1-based index
+CALL DCOPY(K1, DWORK(K), 1, DWORK(K2), 1)
+```
+
+**Correct Rust Conversion:**
+```rust
+// K2 = DP + 2 in Fortran (1-based) becomes DP + 1 in Rust (0-based)
+let k2 = dp + 1;  // NOT dp + 2!
+
+// DWORK(K) in Fortran = dwork[k-1] in Rust
+// DWORK(K2) in Fortran = dwork[k2] in Rust (already adjusted)
+for i in 0..k1 {
+    dwork[k2 + i] = dwork[k - 1 + i] / alpha;  // Correct indices
+}
+```
+
+#### Key Principle
+
+When translating Fortran algorithms with variable-based indices:
+1. **Identify conceptually which indices are "Fortran 1-based"** (not 0-based loop variables)
+2. **Add comments mapping Fortran to Rust** (e.g., "DWORK(K) in Fortran = dwork[k-1] in Rust")
+3. **Check all array accesses** using that variable for correct -1 offset
+4. **Watch for offset calculations** like `DP + 2` which also need adjustment
+
+This pattern caught the MC01TD implementation (polynomial stability checker) - see git commit c0276fc for the fix.
 
 ### Challenge 3: Workspace Management
 
