@@ -295,10 +295,249 @@ fn apply_householder_similarity(a: &mut Array2<f64>, v: &Array1<f64>, tau: f64) 
 // have been removed as they are no longer needed. The LAPACK DGEHRD routine is now used for
 // Hessenberg reduction, which is more efficient and matches the original SLICOT implementation.
 
+/// Cascade inter-connection of two systems in state-space form
+///
+/// Computes the state-space model (A,B,C,D) for the cascaded inter-connection of two systems,
+/// each given in state-space form.
+///
+/// # Arguments
+///
+/// * `uplo` - Specifies the form of the state matrix A:
+///   - 'U' or 'u': Upper block diagonal form (A2 first, then A1)
+///   - 'L' or 'l': Lower block diagonal form (A1 first, then A2)
+/// * `a1` - N1×N1 state transition matrix for system 1
+/// * `b1` - N1×M1 input/state matrix for system 1
+/// * `c1` - P1×N1 state/output matrix for system 1
+/// * `d1` - P1×M1 input/output matrix for system 1
+/// * `a2` - N2×N2 state transition matrix for system 2
+/// * `b2` - N2×P1 input/state matrix for system 2 (note: P1 inputs from system 1)
+/// * `c2` - P2×N2 state/output matrix for system 2
+/// * `d2` - P2×P1 input/output matrix for system 2 (note: P1 inputs from system 1)
+///
+/// # Returns
+///
+/// A tuple `(a, b, c, d)` where:
+/// - `a`: (N1+N2)×(N1+N2) state transition matrix of cascaded system
+/// - `b`: (N1+N2)×M1 input/state matrix of cascaded system
+/// - `c`: P2×(N1+N2) state/output matrix of cascaded system
+/// - `d`: P2×M1 input/output matrix of cascaded system
+///
+/// # Examples
+///
+/// ```
+/// use slicot_rs::ab::ab05md;
+/// use ndarray::arr2;
+///
+/// // System 1: X1' = A1*X1 + B1*U, V = C1*X1 + D1*U
+/// let a1 = arr2(&[[1.0, 0.0], [0.0, -1.0]]);
+/// let b1 = arr2(&[[1.0], [2.0]]);
+/// let c1 = arr2(&[[3.0, -2.0], [0.0, 1.0]]);
+/// let d1 = arr2(&[[1.0], [0.0]]);
+///
+/// // System 2: X2' = A2*X2 + B2*V, Y = C2*X2 + D2*V
+/// let a2 = arr2(&[[-3.0, 0.0], [1.0, 0.0]]);
+/// let b2 = arr2(&[[0.0, -1.0], [1.0, 0.0]]);
+/// let c2 = arr2(&[[1.0, 1.0]]);
+/// let d2 = arr2(&[[1.0, 1.0]]);
+///
+/// let (a, b, c, d) = ab05md('L', &a1, &b1, &c1, &d1, &a2, &b2, &c2, &d2).unwrap();
+/// assert_eq!(a.dim(), (4, 4)); // N1+N2 = 2+2 = 4
+/// ```
+///
+/// # Algorithm
+///
+/// After cascaded inter-connection:
+///
+/// System 1: X1' = A1*X1 + B1*U, V = C1*X1 + D1*U
+/// System 2: X2' = A2*X2 + B2*V, Y = C2*X2 + D2*V
+///
+/// The combined system X' = A*X + B*U, Y = C*X + D*U is obtained as:
+///
+/// For UPLO='L' (lower block diagonal):
+/// - A = [ A1      0  ]
+///       [ B2*C1  A2 ]
+/// - B = [  B1   ]
+///       [ B2*D1 ]
+/// - C = [ D2*C1  C2 ]
+/// - D = [ D2*D1 ]
+///
+/// For UPLO='U' (upper block diagonal):
+/// - A = [ A2  B2*C1 ]
+///       [ 0    A1  ]
+/// - B = [ B2*D1 ]
+///       [  B1   ]
+/// - C = [ C2  D2*C1 ]
+/// - D = [ D2*D1 ]
+///
+/// # SLICOT Reference
+///
+/// This is a Rust translation of SLICOT routine AB05MD.
+///
+/// **Reference**: `reference/src/AB05MD.f`
+///
+/// **Differences from Fortran**:
+/// - Simple char parameter instead of CHARACTER*1
+/// - Returns new matrices instead of in-place modification
+/// - No OVER parameter (always allocates new arrays)
+/// - Uses ndarray for all matrix operations
+///
+#[allow(clippy::too_many_arguments)]
+pub fn ab05md(
+    uplo: char,
+    a1: &Array2<f64>,
+    b1: &Array2<f64>,
+    c1: &Array2<f64>,
+    d1: &Array2<f64>,
+    a2: &Array2<f64>,
+    b2: &Array2<f64>,
+    c2: &Array2<f64>,
+    d2: &Array2<f64>,
+) -> Result<(Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>), String> {
+    // Extract dimensions
+    let n1 = a1.nrows();
+    let m1 = b1.ncols();
+    let p1 = c1.nrows();
+    let n2 = a2.nrows();
+    let p2 = c2.nrows();
+
+    // Validate UPLO parameter
+    let uplo_upper = uplo == 'U' || uplo == 'u';
+    let uplo_lower = uplo == 'L' || uplo == 'l';
+    if !uplo_upper && !uplo_lower {
+        return Err(format!(
+            "Invalid UPLO parameter: '{}'. Must be 'U' or 'L'",
+            uplo
+        ));
+    }
+
+    // Validate dimensions
+    if a1.ncols() != n1 {
+        return Err(format!("A1 must be square, got {}×{}", n1, a1.ncols()));
+    }
+    if b1.nrows() != n1 {
+        return Err(format!("B1 must have N1={} rows, got {}", n1, b1.nrows()));
+    }
+    if c1.ncols() != n1 {
+        return Err(format!(
+            "C1 must have N1={} columns, got {}",
+            n1,
+            c1.ncols()
+        ));
+    }
+    if d1.nrows() != p1 || d1.ncols() != m1 {
+        return Err(format!(
+            "D1 must be P1×M1 = {}×{}, got {}×{}",
+            p1,
+            m1,
+            d1.nrows(),
+            d1.ncols()
+        ));
+    }
+    if a2.ncols() != n2 {
+        return Err(format!("A2 must be square, got {}×{}", n2, a2.ncols()));
+    }
+    if b2.nrows() != n2 || b2.ncols() != p1 {
+        return Err(format!(
+            "B2 must be N2×P1 = {}×{}, got {}×{}",
+            n2,
+            p1,
+            b2.nrows(),
+            b2.ncols()
+        ));
+    }
+    if c2.ncols() != n2 {
+        return Err(format!(
+            "C2 must have N2={} columns, got {}",
+            n2,
+            c2.ncols()
+        ));
+    }
+    if d2.nrows() != p2 || d2.ncols() != p1 {
+        return Err(format!(
+            "D2 must be P2×P1 = {}×{}, got {}×{}",
+            p2,
+            p1,
+            d2.nrows(),
+            d2.ncols()
+        ));
+    }
+
+    // Quick return for zero dimensions
+    let n = n1 + n2;
+    if n == 0 {
+        return Ok((
+            Array2::zeros((0, 0)),
+            Array2::zeros((0, m1)),
+            Array2::zeros((p2, 0)),
+            Array2::zeros((p2, m1)),
+        ));
+    }
+
+    // Compute intermediate products
+    let b2_c1 = b2.dot(c1); // N2×N1
+    let b2_d1 = b2.dot(d1); // N2×M1
+    let d2_c1 = d2.dot(c1); // P2×N1
+    let d2_d1 = d2.dot(d1); // P2×M1
+
+    // Construct output matrices based on UPLO
+    let (a, b, c, d) = if uplo_lower {
+        // Lower block diagonal form
+        // A = [ A1      0  ]
+        //     [ B2*C1  A2 ]
+        let mut a = Array2::zeros((n, n));
+        a.slice_mut(s![0..n1, 0..n1]).assign(a1);
+        a.slice_mut(s![n1..n, 0..n1]).assign(&b2_c1);
+        a.slice_mut(s![n1..n, n1..n]).assign(a2);
+
+        // B = [  B1   ]
+        //     [ B2*D1 ]
+        let mut b = Array2::zeros((n, m1));
+        b.slice_mut(s![0..n1, ..]).assign(b1);
+        b.slice_mut(s![n1..n, ..]).assign(&b2_d1);
+
+        // C = [ D2*C1  C2 ]
+        let mut c = Array2::zeros((p2, n));
+        c.slice_mut(s![.., 0..n1]).assign(&d2_c1);
+        c.slice_mut(s![.., n1..n]).assign(c2);
+
+        // D = [ D2*D1 ]
+        let d = d2_d1.clone();
+
+        (a, b, c, d)
+    } else {
+        // Upper block diagonal form (UPLO='U')
+        // A = [ A2  B2*C1 ]
+        //     [ 0    A1  ]
+        let mut a = Array2::zeros((n, n));
+        a.slice_mut(s![0..n2, 0..n2]).assign(a2);
+        a.slice_mut(s![0..n2, n2..n]).assign(&b2_c1);
+        a.slice_mut(s![n2..n, n2..n]).assign(a1);
+
+        // B = [ B2*D1 ]
+        //     [  B1   ]
+        let mut b = Array2::zeros((n, m1));
+        b.slice_mut(s![0..n2, ..]).assign(&b2_d1);
+        b.slice_mut(s![n2..n, ..]).assign(b1);
+
+        // C = [ C2  D2*C1 ]
+        let mut c = Array2::zeros((p2, n));
+        c.slice_mut(s![.., 0..n2]).assign(c2);
+        c.slice_mut(s![.., n2..n]).assign(&d2_c1);
+
+        // D = [ D2*D1 ]
+        let d = d2_d1.clone();
+
+        (a, b, c, d)
+    };
+
+    Ok((a, b, c, d))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::arr1;
+    use approx::assert_abs_diff_eq;
+    use ndarray::{arr1, arr2};
 
     #[test]
     fn test_ab01md_n_zero() {
@@ -408,5 +647,224 @@ mod tests {
             ncont,
             b[(0, 0)]
         );
+    }
+
+    // AB05MD Tests
+
+    #[test]
+    fn test_ab05md_zero_dimensions() {
+        // Test with N1=0, N2=0
+        let a1 = Array2::zeros((0, 0));
+        let b1 = Array2::zeros((0, 1));
+        let c1 = Array2::zeros((1, 0));
+        let d1 = Array2::zeros((1, 1));
+        let a2 = Array2::zeros((0, 0));
+        let b2 = Array2::zeros((0, 1));
+        let c2 = Array2::zeros((1, 0));
+        let d2 = Array2::zeros((1, 1));
+
+        let result = ab05md('L', &a1, &b1, &c1, &d1, &a2, &b2, &c2, &d2);
+        assert!(result.is_ok());
+        let (a, b, c, d) = result.unwrap();
+        assert_eq!(a.dim(), (0, 0));
+        assert_eq!(b.dim(), (0, 1));
+        assert_eq!(c.dim(), (1, 0));
+        assert_eq!(d.dim(), (1, 1));
+    }
+
+    #[test]
+    fn test_ab05md_invalid_uplo() {
+        let a1 = arr2(&[[1.0]]);
+        let b1 = arr2(&[[1.0]]);
+        let c1 = arr2(&[[1.0]]);
+        let d1 = arr2(&[[1.0]]);
+        let a2 = arr2(&[[1.0]]);
+        let b2 = arr2(&[[1.0]]);
+        let c2 = arr2(&[[1.0]]);
+        let d2 = arr2(&[[1.0]]);
+
+        let result = ab05md('X', &a1, &b1, &c1, &d1, &a2, &b2, &c2, &d2);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid UPLO parameter"));
+    }
+
+    #[test]
+    fn test_ab05md_dimension_mismatch() {
+        let a1 = arr2(&[[1.0, 0.0], [0.0, 1.0]]);
+        let b1 = arr2(&[[1.0], [1.0]]);
+        let c1 = arr2(&[[1.0, 1.0]]);
+        let d1 = arr2(&[[1.0]]);
+        let a2 = arr2(&[[1.0]]);
+        let b2 = arr2(&[[1.0]]); // Should be N2×P1, but P1=1 from C1
+        let c2 = arr2(&[[1.0]]);
+        let d2 = arr2(&[[1.0, 1.0]]); // Wrong: should be P2×P1=1×1
+
+        let result = ab05md('L', &a1, &b1, &c1, &d1, &a2, &b2, &c2, &d2);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ab05md_html_example_lower() {
+        // Test data from AB05MD HTML documentation
+        // N1=3, M1=2, P1=2, N2=3, P2=2
+        // Data parsed according to Fortran READ statements in the example program
+
+        // System 1 matrices
+        // READ ( NIN, FMT = * ) ( ( A1(I,J), J = 1,N1 ), I = 1,N1 )
+        // Row-wise reading: A1 is 3×3
+        let a1 = arr2(&[[1.0, 0.0, -1.0], [0.0, -1.0, 1.0], [1.0, 1.0, 2.0]]);
+
+        // READ ( NIN, FMT = * ) ( ( B1(I,J), I = 1,N1 ), J = 1,M1 )
+        // Column-wise reading: B1 is 3×2
+        // Data: 1.0 1.0 0.0 2.0 0.0 1.0
+        // Col 1: B1(1,1)=1.0, B1(2,1)=1.0, B1(3,1)=0.0
+        // Col 2: B1(1,2)=2.0, B1(2,2)=0.0, B1(3,2)=1.0
+        let b1 = arr2(&[[1.0, 2.0], [1.0, 0.0], [0.0, 1.0]]);
+
+        // READ ( NIN, FMT = * ) ( ( C1(I,J), J = 1,N1 ), I = 1,P1 )
+        // Row-wise reading: C1 is 2×3
+        let c1 = arr2(&[[3.0, -2.0, 1.0], [0.0, 1.0, 0.0]]);
+
+        // READ ( NIN, FMT = * ) ( ( D1(I,J), J = 1,M1 ), I = 1,P1 )
+        // Row-wise reading: D1 is 2×2
+        let d1 = arr2(&[[1.0, 0.0], [0.0, 1.0]]);
+
+        // System 2 matrices
+        // READ ( NIN, FMT = * ) ( ( A2(I,J), J = 1,N2 ), I = 1,N2 )
+        // Row-wise reading: A2 is 3×3
+        let a2 = arr2(&[[-3.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, -1.0, 2.0]]);
+
+        // READ ( NIN, FMT = * ) ( ( B2(I,J), I = 1,N2 ), J = 1,P1 )
+        // Column-wise reading: B2 is 3×2
+        // Data: 0.0 -1.0 0.0 1.0 0.0 2.0
+        // Col 1: B2(1,1)=0.0, B2(2,1)=-1.0, B2(3,1)=0.0
+        // Col 2: B2(1,2)=1.0, B2(2,2)=0.0, B2(3,2)=2.0
+        let b2 = arr2(&[[0.0, 1.0], [-1.0, 0.0], [0.0, 2.0]]);
+
+        // READ ( NIN, FMT = * ) ( ( C2(I,J), J = 1,N2 ), I = 1,P2 )
+        // Row-wise reading: C2 is 2×3
+        let c2 = arr2(&[[1.0, 1.0, 0.0], [1.0, 1.0, -1.0]]);
+
+        // READ ( NIN, FMT = * ) ( ( D2(I,J), J = 1,P1 ), I = 1,P2 )
+        // Row-wise reading: D2 is 2×2
+        let d2 = arr2(&[[1.0, 1.0], [0.0, 1.0]]);
+
+        // Call ab05md with UPLO='L' (lower block diagonal)
+        let result = ab05md('L', &a1, &b1, &c1, &d1, &a2, &b2, &c2, &d2);
+        assert!(result.is_ok());
+        let (a, b, c, d) = result.unwrap();
+
+        // Verify dimensions
+        assert_eq!(a.dim(), (6, 6)); // N1+N2 = 3+3 = 6
+        assert_eq!(b.dim(), (6, 2)); // (N1+N2)×M1 = 6×2
+        assert_eq!(c.dim(), (2, 6)); // P2×(N1+N2) = 2×6
+        assert_eq!(d.dim(), (2, 2)); // P2×M1 = 2×2
+
+        // Expected results from HTML documentation
+        let a_expected = arr2(&[
+            [1.0, 0.0, -1.0, 0.0, 0.0, 0.0],
+            [0.0, -1.0, 1.0, 0.0, 0.0, 0.0],
+            [1.0, 1.0, 2.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, -3.0, 0.0, 0.0],
+            [-3.0, 2.0, -1.0, 1.0, 0.0, 1.0],
+            [0.0, 2.0, 0.0, 0.0, -1.0, 2.0],
+        ]);
+
+        let b_expected = arr2(&[
+            [1.0, 2.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 1.0],
+            [-1.0, 0.0],
+            [0.0, 2.0],
+        ]);
+
+        let c_expected = arr2(&[
+            [3.0, -1.0, 1.0, 1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0, 1.0, 1.0, -1.0],
+        ]);
+
+        let d_expected = arr2(&[[1.0, 1.0], [0.0, 1.0]]);
+
+        // Compare with tolerance
+        let tol = 1e-3;
+
+        for i in 0..6 {
+            for j in 0..6 {
+                assert_abs_diff_eq!(a[(i, j)], a_expected[(i, j)], epsilon = tol);
+            }
+        }
+        for i in 0..6 {
+            for j in 0..2 {
+                assert_abs_diff_eq!(b[(i, j)], b_expected[(i, j)], epsilon = tol);
+            }
+        }
+        for i in 0..2 {
+            for j in 0..6 {
+                assert_abs_diff_eq!(c[(i, j)], c_expected[(i, j)], epsilon = tol);
+            }
+        }
+        for i in 0..2 {
+            for j in 0..2 {
+                assert_abs_diff_eq!(d[(i, j)], d_expected[(i, j)], epsilon = tol);
+            }
+        }
+    }
+
+    #[test]
+    fn test_ab05md_upper_block_form() {
+        // Test UPLO='U' (upper block diagonal) with simple 2×2 systems
+        let a1 = arr2(&[[1.0, 0.0], [0.0, 2.0]]);
+        let b1 = arr2(&[[1.0], [0.0]]);
+        let c1 = arr2(&[[1.0, 0.0]]);
+        let d1 = arr2(&[[0.0]]);
+
+        let a2 = arr2(&[[3.0, 0.0], [0.0, 4.0]]);
+        let b2 = arr2(&[[1.0], [0.0]]);
+        let c2 = arr2(&[[1.0, 0.0]]);
+        let d2 = arr2(&[[0.0]]);
+
+        let result = ab05md('U', &a1, &b1, &c1, &d1, &a2, &b2, &c2, &d2);
+        assert!(result.is_ok());
+        let (a, _b, _c, _d) = result.unwrap();
+
+        // Verify dimensions
+        assert_eq!(a.dim(), (4, 4));
+
+        // For UPLO='U':
+        // A = [ A2  B2*C1 ]
+        //     [ 0    A1  ]
+        // B2*C1 = [[1.0], [0.0]] * [[1.0, 0.0]] = [[1.0, 0.0], [0.0, 0.0]]
+        assert_abs_diff_eq!(a[(0, 0)], 3.0, epsilon = 1e-10);
+        assert_abs_diff_eq!(a[(1, 1)], 4.0, epsilon = 1e-10);
+        assert_abs_diff_eq!(a[(2, 2)], 1.0, epsilon = 1e-10);
+        assert_abs_diff_eq!(a[(3, 3)], 2.0, epsilon = 1e-10);
+
+        // Upper right block: B2*C1
+        assert_abs_diff_eq!(a[(0, 2)], 1.0, epsilon = 1e-10);
+        assert_abs_diff_eq!(a[(0, 3)], 0.0, epsilon = 1e-10);
+
+        // Lower left block: should be zero
+        assert_abs_diff_eq!(a[(2, 0)], 0.0, epsilon = 1e-10);
+        assert_abs_diff_eq!(a[(3, 0)], 0.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_ab05md_case_insensitive_uplo() {
+        // Test that both 'L'/'l' and 'U'/'u' work
+        let a1 = arr2(&[[1.0]]);
+        let b1 = arr2(&[[1.0]]);
+        let c1 = arr2(&[[1.0]]);
+        let d1 = arr2(&[[1.0]]);
+        let a2 = arr2(&[[2.0]]);
+        let b2 = arr2(&[[1.0]]);
+        let c2 = arr2(&[[1.0]]);
+        let d2 = arr2(&[[1.0]]);
+
+        let result_l = ab05md('l', &a1, &b1, &c1, &d1, &a2, &b2, &c2, &d2);
+        let result_u = ab05md('u', &a1, &b1, &c1, &d1, &a2, &b2, &c2, &d2);
+
+        assert!(result_l.is_ok());
+        assert!(result_u.is_ok());
     }
 }
