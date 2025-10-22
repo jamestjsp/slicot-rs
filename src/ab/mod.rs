@@ -658,6 +658,307 @@ pub fn ab04md(
     Ok(())
 }
 
+
+pub fn ab05md(
+    uplo: char,
+    a1: &Array2<f64>,
+    b1: &Array2<f64>,
+    c1: &Array2<f64>,
+    d1: &Array2<f64>,
+    a2: &Array2<f64>,
+    b2: &Array2<f64>,
+    c2: &Array2<f64>,
+    d2: &Array2<f64>,
+) -> Result<(Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>), String> {
+    // Extract dimensions
+    let n1 = a1.nrows();
+    let m1 = b1.ncols();
+    let p1 = c1.nrows();
+    let n2 = a2.nrows();
+    let p2 = c2.nrows();
+
+    // Validate UPLO parameter
+    let uplo_upper = uplo == 'U' || uplo == 'u';
+    let uplo_lower = uplo == 'L' || uplo == 'l';
+    if !uplo_upper && !uplo_lower {
+        return Err(format!(
+            "Invalid UPLO parameter: '{}'. Must be 'U' or 'L'",
+            uplo
+        ));
+    }
+
+    // Validate dimensions
+    if a1.ncols() != n1 {
+        return Err(format!("A1 must be square, got {}×{}", n1, a1.ncols()));
+    }
+    if b1.nrows() != n1 {
+        return Err(format!("B1 must have N1={} rows, got {}", n1, b1.nrows()));
+    }
+    if c1.ncols() != n1 {
+        return Err(format!(
+            "C1 must have N1={} columns, got {}",
+            n1,
+            c1.ncols()
+        ));
+    }
+    if d1.nrows() != p1 || d1.ncols() != m1 {
+        return Err(format!(
+            "D1 must be P1×M1 = {}×{}, got {}×{}",
+            p1,
+            m1,
+            d1.nrows(),
+            d1.ncols()
+        ));
+    }
+    if a2.ncols() != n2 {
+        return Err(format!("A2 must be square, got {}×{}", n2, a2.ncols()));
+    }
+    if b2.nrows() != n2 || b2.ncols() != p1 {
+        return Err(format!(
+            "B2 must be N2×P1 = {}×{}, got {}×{}",
+            n2,
+            p1,
+            b2.nrows(),
+            b2.ncols()
+        ));
+    }
+    if c2.ncols() != n2 {
+        return Err(format!(
+            "C2 must have N2={} columns, got {}",
+            n2,
+            c2.ncols()
+        ));
+    }
+    if d2.nrows() != p2 || d2.ncols() != p1 {
+        return Err(format!(
+            "D2 must be P2×P1 = {}×{}, got {}×{}",
+            p2,
+            p1,
+            d2.nrows(),
+            d2.ncols()
+        ));
+    }
+
+    // Quick return for zero dimensions
+    let n = n1 + n2;
+    if n == 0 {
+        return Ok((
+            Array2::zeros((0, 0)),
+            Array2::zeros((0, m1)),
+            Array2::zeros((p2, 0)),
+            Array2::zeros((p2, m1)),
+        ));
+    }
+
+    // Compute intermediate products
+    let b2_c1 = b2.dot(c1); // N2×N1
+    let b2_d1 = b2.dot(d1); // N2×M1
+    let d2_c1 = d2.dot(c1); // P2×N1
+    let d2_d1 = d2.dot(d1); // P2×M1
+
+    // Construct output matrices based on UPLO
+    let (a, b, c, d) = if uplo_lower {
+        // Lower block diagonal form
+        // A = [ A1      0  ]
+        //     [ B2*C1  A2 ]
+        let mut a = Array2::zeros((n, n));
+        a.slice_mut(s![0..n1, 0..n1]).assign(a1);
+        a.slice_mut(s![n1..n, 0..n1]).assign(&b2_c1);
+        a.slice_mut(s![n1..n, n1..n]).assign(a2);
+
+        // B = [  B1   ]
+        //     [ B2*D1 ]
+        let mut b = Array2::zeros((n, m1));
+        b.slice_mut(s![0..n1, ..]).assign(b1);
+        b.slice_mut(s![n1..n, ..]).assign(&b2_d1);
+
+        // C = [ D2*C1  C2 ]
+        let mut c = Array2::zeros((p2, n));
+        c.slice_mut(s![.., 0..n1]).assign(&d2_c1);
+        c.slice_mut(s![.., n1..n]).assign(c2);
+
+        // D = [ D2*D1 ]
+        let d = d2_d1.clone();
+
+        (a, b, c, d)
+    } else {
+        // Upper block diagonal form (UPLO='U')
+        // A = [ A2  B2*C1 ]
+        //     [ 0    A1  ]
+        let mut a = Array2::zeros((n, n));
+        a.slice_mut(s![0..n2, 0..n2]).assign(a2);
+        a.slice_mut(s![0..n2, n2..n]).assign(&b2_c1);
+        a.slice_mut(s![n2..n, n2..n]).assign(a1);
+
+        // B = [ B2*D1 ]
+        //     [  B1   ]
+        let mut b = Array2::zeros((n, m1));
+        b.slice_mut(s![0..n2, ..]).assign(&b2_d1);
+        b.slice_mut(s![n2..n, ..]).assign(b1);
+
+        // C = [ C2  D2*C1 ]
+        let mut c = Array2::zeros((p2, n));
+        c.slice_mut(s![.., 0..n2]).assign(c2);
+        c.slice_mut(s![.., n2..n]).assign(&d2_c1);
+
+        // D = [ D2*D1 ]
+        let d = d2_d1.clone();
+
+        (a, b, c, d)
+    };
+
+    Ok((a, b, c, d))
+}
+
+
+
+
+pub fn ab05od(
+    a1: &Array2<f64>,
+    b1: &Array2<f64>,
+    c1: &Array2<f64>,
+    d1: &Array2<f64>,
+    a2: &Array2<f64>,
+    b2: &Array2<f64>,
+    c2: &Array2<f64>,
+    d2: &Array2<f64>,
+    alpha: f64,
+) -> Result<(Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>), String> {
+    // Extract dimensions
+    let n1 = a1.nrows();
+    let m1 = b1.ncols();
+    let p1 = c1.nrows();
+    let n2 = a2.nrows();
+    let m2 = b2.ncols();
+
+    // Validate system 1 dimensions
+    if a1.ncols() != n1 {
+        return Err(format!("A1 must be square, got {}×{}", n1, a1.ncols()));
+    }
+    if b1.nrows() != n1 {
+        return Err(format!(
+            "B1 rows ({}) must match A1 dimension ({})",
+            b1.nrows(),
+            n1
+        ));
+    }
+    if c1.ncols() != n1 {
+        return Err(format!(
+            "C1 columns ({}) must match A1 dimension ({})",
+            c1.ncols(),
+            n1
+        ));
+    }
+    if d1.nrows() != p1 {
+        return Err(format!(
+            "D1 rows ({}) must match C1 rows ({})",
+            d1.nrows(),
+            p1
+        ));
+    }
+    if d1.ncols() != m1 {
+        return Err(format!(
+            "D1 columns ({}) must match B1 columns ({})",
+            d1.ncols(),
+            m1
+        ));
+    }
+
+    // Validate system 2 dimensions
+    if a2.ncols() != n2 {
+        return Err(format!("A2 must be square, got {}×{}", n2, a2.ncols()));
+    }
+    if b2.nrows() != n2 {
+        return Err(format!(
+            "B2 rows ({}) must match A2 dimension ({})",
+            b2.nrows(),
+            n2
+        ));
+    }
+    if c2.nrows() != p1 {
+        return Err(format!(
+            "C2 rows ({}) must match C1 rows ({})",
+            c2.nrows(),
+            p1
+        ));
+    }
+    if c2.ncols() != n2 {
+        return Err(format!(
+            "C2 columns ({}) must match A2 dimension ({})",
+            c2.ncols(),
+            n2
+        ));
+    }
+    if d2.nrows() != p1 {
+        return Err(format!(
+            "D2 rows ({}) must match C1 rows ({})",
+            d2.nrows(),
+            p1
+        ));
+    }
+    if d2.ncols() != m2 {
+        return Err(format!(
+            "D2 columns ({}) must match B2 columns ({})",
+            d2.ncols(),
+            m2
+        ));
+    }
+
+    // Combined dimensions
+    let n = n1 + n2;
+    let m = m1 + m2;
+
+    // Allocate output matrices
+    let mut a = Array2::zeros((n, n));
+    let mut b = Array2::zeros((n, m));
+    let mut c = Array2::zeros((p1, n));
+    let mut d = Array2::zeros((p1, m));
+
+    // Assemble A matrix: [A1  0]
+    //                    [0  A2]
+    if n1 > 0 {
+        a.slice_mut(s![0..n1, 0..n1]).assign(a1);
+    }
+    if n2 > 0 {
+        a.slice_mut(s![n1..n, n1..n]).assign(a2);
+    }
+
+    // Assemble B matrix: [B1  0]
+    //                    [0  B2]
+    if n1 > 0 && m1 > 0 {
+        b.slice_mut(s![0..n1, 0..m1]).assign(b1);
+    }
+    if n2 > 0 && m2 > 0 {
+        b.slice_mut(s![n1..n, m1..m]).assign(b2);
+    }
+
+    // Assemble C matrix: [C1  alpha*C2]
+    if p1 > 0 {
+        if n1 > 0 {
+            c.slice_mut(s![0..p1, 0..n1]).assign(c1);
+        }
+        if n2 > 0 {
+            // Scale C2 by alpha
+            c.slice_mut(s![0..p1, n1..n]).assign(&(c2 * alpha));
+        }
+    }
+
+    // Assemble D matrix: [D1  alpha*D2]
+    if p1 > 0 {
+        if m1 > 0 {
+            d.slice_mut(s![0..p1, 0..m1]).assign(d1);
+        }
+        if m2 > 0 {
+            // Scale D2 by alpha
+            d.slice_mut(s![0..p1, m1..m]).assign(&(d2 * alpha));
+        }
+    }
+
+    Ok((a, b, c, d))
+}
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
