@@ -14,6 +14,7 @@
 //! - `ab`: Analysis routines (AB01MD - controllability decomposition, etc.)
 //! - `sb`: Synthesis routines (SB01BD - pole placement, etc.)
 //! - `tb`: Transformation routines (TB01ID - system balancing, etc.)
+//! - `tc`: Transformation/Controllability routines (TC01OD - polynomial matrix dual, etc.)
 //! - Additional chapters will be added as routines are translated
 //!
 //! # Example
@@ -31,4 +32,5 @@ pub mod ma;
 pub mod mb;
 pub mod mc;
 pub mod sb;
+pub mod tc;
 pub mod tb;
