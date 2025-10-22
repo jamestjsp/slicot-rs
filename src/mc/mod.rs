@@ -106,9 +106,9 @@ impl std::error::Error for PolynomialError {}
 /// assert!(!result.stable);
 /// assert_eq!(result.num_unstable, 1);
 ///
-/// // Stable discrete-time polynomial: P(x) = 1 + 0.5x
+/// // Stable discrete-time polynomial: P(x) = 1 + 2x
 /// // Zero at x = -0.5 (inside unit circle)
-/// let p = vec![1.0, 0.5];
+/// let p = vec![1.0, 2.0];
 /// let result = mc01td('D', &p).unwrap();
 /// assert!(result.stable);
 /// ```
@@ -199,21 +199,26 @@ fn routh_stability(p: &[f64], dwork: &mut [f64]) -> Result<usize, PolynomialErro
     let mut k = p.len() - 1;
 
     // Routh algorithm: compute coefficients and count sign changes
+    // k represents the degree, and maps to Fortran's K variable (1-based conceptually)
+    // DWORK(K) in Fortran = dwork[k-1] in Rust (0-based indexing)
+    // DWORK(K+1) in Fortran = dwork[k] in Rust
     while k > 0 {
-        if dwork[k] == ZERO {
+        if dwork[k - 1] == ZERO {
             return Err(PolynomialError::InconclusiveStability);
         }
 
-        let alpha = dwork[k + 1] / dwork[k];
+        let alpha = dwork[k] / dwork[k - 1];
         if alpha < ZERO {
             nz += 1;
         }
         k -= 1;
 
         // Update coefficients: dwork[i] := dwork[i] - alpha * dwork[i-1]
+        // Fortran: DO I = K, 2, -2: DWORK(I) = DWORK(I) - ALPHA*DWORK(I-1)
+        // In Rust: for i from k down to 2 (treating i as a 1-based degree index): dwork[i-1] -= alpha * dwork[i-2]
         let mut i = k;
         while i >= 2 {
-            dwork[i] -= alpha * dwork[i - 1];
+            dwork[i - 1] -= alpha * dwork[i - 2];
             i -= 2;
         }
     }
@@ -238,10 +243,14 @@ fn schur_cohn_stability(p: &[f64], dwork: &mut [f64]) -> Result<usize, Polynomia
     let mut k = 1;
 
     // Schur-Cohn algorithm
+    // k represents a degree/level index (Fortran-like, 1-based conceptually)
+    // Fortran: DWORK(K), DWORK(K+1), ... are accessed as indices starting from K
+    // Rust: These map to dwork[k-1], dwork[k], ... (0-based, subtract 1 from k)
     while k <= dp {
-        // Find index of maximum absolute value in dwork[k..k+k1]
+        // Find index of maximum absolute value in dwork[k-1..k-1+k1]
         let k1 = dp - k + 2;
-        let k2 = dp + 2;
+        // K2 = DP + 2 in Fortran (1-based), converts to DP + 1 in Rust (0-based)
+        let k2 = dp + 1;
 
         let max_idx = idamax(&dwork[k - 1..k - 1 + k1]);
         let alpha = dwork[k - 1 + max_idx];
@@ -250,27 +259,31 @@ fn schur_cohn_stability(p: &[f64], dwork: &mut [f64]) -> Result<usize, Polynomia
             return Err(PolynomialError::InconclusiveStability);
         }
 
-        // Copy and scale: dwork[k2..k2+k1] = dwork[k..k+k1] / alpha
+        // Copy and scale: dwork[k2..k2+k1] = dwork[k-1..k-1+k1] / alpha
+        // Fortran: CALL DCOPY( K1, DWORK(K), 1, DWORK(K2), 1 )
+        // Maps to: copy from dwork[k-1..k-1+k1] to dwork[k2..k2+k1]
         for i in 0..k1 {
-            dwork[k2 + i] = dwork[k + i] / alpha;
+            dwork[k2 + i] = dwork[k - 1 + i] / alpha;
         }
 
         let p1 = dwork[k2];
         let pk1 = dwork[k2 + k1 - 1];
 
         // Compute T^k P(x): Schur transform
+        // Fortran: DO 100 I = 1, K1 - 1: DWORK(K+I) = ...
+        // Maps to: for i from 1 to k1-1: dwork[k-1+i] = ...
         for i in 1..k1 {
-            dwork[k + i] = p1 * dwork[dp + 1 + i] - pk1 * dwork[k2 + k1 - i];
+            dwork[k - 1 + i] = p1 * dwork[dp + 1 + i] - pk1 * dwork[k2 + k1 - i];
         }
 
         // Update k and check sign
         k += 1;
 
-        if dwork[k] == ZERO {
+        if dwork[k - 1] == ZERO {
             return Err(PolynomialError::InconclusiveStability);
         }
 
-        signum *= dwork[k].signum();
+        signum *= dwork[k - 1].signum();
         if signum < ZERO {
             nz += 1;
         }
@@ -336,8 +349,9 @@ mod tests {
 
     #[test]
     fn test_unstable_continuous_second_order() {
-        // P(x) = -1 + x², zeros at x = ±1 (one in right half-plane)
-        let p = vec![-1.0, 0.0, 1.0];
+        // P(x) = -1 + x + x², zeros from x² + x - 1 = 0
+        // x = (-1 ± √5) / 2, one zero in right half-plane (≈ 0.618)
+        let p = vec![-1.0, 1.0, 1.0];
         let result = mc01td('C', &p).unwrap();
         assert!(!result.stable);
         assert!(result.num_unstable > 0);
@@ -345,8 +359,8 @@ mod tests {
 
     #[test]
     fn test_stable_discrete_first_order() {
-        // P(x) = 1 + 0.5x, zero at x = -0.5 (inside unit circle)
-        let p = vec![1.0, 0.5];
+        // P(x) = 1 + 2x, zero at x = -1/2 = -0.5 (inside unit circle)
+        let p = vec![1.0, 2.0];
         let result = mc01td('D', &p).unwrap();
         assert!(result.stable);
         assert_eq!(result.num_unstable, 0);
@@ -354,8 +368,8 @@ mod tests {
 
     #[test]
     fn test_unstable_discrete_first_order() {
-        // P(x) = 1 + 2x, zero at x = -2 (outside unit circle)
-        let p = vec![1.0, 2.0];
+        // P(x) = 1 + 0.5x, zero at x = -1/0.5 = -2 (outside unit circle)
+        let p = vec![1.0, 0.5];
         let result = mc01td('D', &p).unwrap();
         assert!(!result.stable);
         assert_eq!(result.num_unstable, 1);
@@ -395,14 +409,16 @@ mod tests {
 
     #[test]
     fn test_case_insensitive_dico() {
-        let p = vec![1.0, 1.0];
-
-        // Lowercase 'c'
-        let result1 = mc01td('c', &p).unwrap();
+        // Test continuous-time with lowercase 'c'
+        // P(x) = 1 + 2x, zero at x = -0.5 (left half-plane)
+        let p1 = vec![1.0, 2.0];
+        let result1 = mc01td('c', &p1).unwrap();
         assert!(result1.stable);
 
-        // Lowercase 'd'
-        let result2 = mc01td('d', &p).unwrap();
+        // Test discrete-time with lowercase 'd'
+        // P(x) = 1 + 2x, zero at x = -0.5 (inside unit circle)
+        let p2 = vec![1.0, 2.0];
+        let result2 = mc01td('d', &p2).unwrap();
         assert!(result2.stable);
     }
 
