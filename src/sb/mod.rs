@@ -387,6 +387,17 @@ fn sb01bd_mimo_varga(
         .fold(f64::NEG_INFINITY, f64::max);
     let tolerb = tol.max((n as f64) * f64::EPSILON * b_norm);
 
+    // Early return if B is negligible (uncontrollable system)
+    // Matches SLICOT SB01BD.f lines 381-386
+    if b_norm <= tolerb {
+        return Ok(PoleAssignmentResult {
+            feedback: f,
+            assigned_count: 0,
+            fixed_count: nfp,
+            uncontrollable_count: n - nfp,
+        });
+    }
+
     // Main loop: assign poles while nlow <= nsup
     while nlow <= nsup {
         // Determine dimension of last diagonal block
