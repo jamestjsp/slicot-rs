@@ -1,0 +1,42 @@
+# slicot-rs Development Container (Optional)
+# This is an alternative to the image-based devcontainer setup.
+# To use this, update devcontainer.json to reference this Dockerfile.
+#
+# Based on the official Rust devcontainer image with BLAS/LAPACK added
+
+FROM mcr.microsoft.com/devcontainers/rust:1-1-bullseye
+
+# Avoid interactive prompts during package installation
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Install BLAS/LAPACK libraries and development tools
+RUN apt-get update && apt-get install -y \
+    # BLAS/LAPACK libraries for ndarray-linalg
+    libopenblas-dev \
+    liblapack-dev \
+    libblas-dev \
+    # Fortran compiler (needed by some LAPACK packages)
+    gfortran \
+    # Build tools
+    pkg-config \
+    # Cleanup to reduce image size
+    && rm -rf /var/lib/apt/lists/*
+
+# Verify installation
+RUN pkg-config --exists openblas || echo "Warning: OpenBLAS pkg-config not found" \
+    && ldconfig -p | grep -i openblas || echo "Warning: OpenBLAS library not in ldconfig"
+
+# Set environment variables for the build
+ENV PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/local/lib/pkgconfig
+ENV LD_LIBRARY_PATH=/usr/lib:/usr/local/lib
+
+# Verify Rust and compiler versions
+RUN rustc --version \
+    && cargo --version \
+    && gfortran --version
+
+# Set the default working directory
+WORKDIR /workspaces
+
+# Default command
+CMD ["/bin/bash"]

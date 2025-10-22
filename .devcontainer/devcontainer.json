@@ -13,17 +13,16 @@
 		// Configure properties specific to VS Code.
 		"vscode": {
 			"settings": {},
-			"extensions": [
-				"streetsidesoftware.code-spell-checker"
-			]
+			"extensions": [	]
 		}
-	}
+	},
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
 
 	// Use 'postCreateCommand' to run commands after the container is created.
-	// "postCreateCommand": "rustc --version",
+	// Install OpenBLAS and LAPACK development libraries for ndarray-linalg
+	"postCreateCommand": "sudo apt-get update && sudo apt-get install -y libopenblas-dev liblapack-dev libblas-dev gfortran pkg-config && rustc --version"
 
 	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
 	// "remoteUser": "root"
