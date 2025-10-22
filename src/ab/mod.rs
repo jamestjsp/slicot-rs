@@ -658,7 +658,6 @@ pub fn ab04md(
     Ok(())
 }
 
-
 pub fn ab05md(
     uplo: char,
     a1: &Array2<f64>,
@@ -810,9 +809,6 @@ pub fn ab05md(
     Ok((a, b, c, d))
 }
 
-
-
-
 pub fn ab05od(
     a1: &Array2<f64>,
     b1: &Array2<f64>,
@@ -956,8 +952,6 @@ pub fn ab05od(
 
     Ok((a, b, c, d))
 }
-
-
 
 #[cfg(test)]
 mod tests {
