@@ -2282,4 +2282,409 @@ mod tests_mb03qd {
             }
         }
     }
+
+    #[test]
+    fn test_mb05nd_html_example() {
+        // Test data from MB05ND HTML documentation
+        // 5x5 matrix A, delta=0.1, tol=0.0001
+        // Data format from HTML: READ ( NIN, FMT = * ) ( ( A(I,J), J = 1,N ), I = 1,N )
+        // This reads row-by-row
+        let a = arr2(&[
+            [5.0, 4.0, 3.0, 2.0, 1.0],
+            [1.0, 6.0, 0.0, 4.0, 3.0],
+            [2.0, 0.0, 7.0, 6.0, 5.0],
+            [1.0, 3.0, 1.0, 8.0, 7.0],
+            [2.0, 5.0, 7.0, 1.0, 9.0],
+        ]);
+
+        let delta = 0.1;
+        let tol = 0.0001;
+
+        let result = mb05nd(&a, delta, tol);
+        assert!(result.is_ok(), "mb05nd failed: {:?}", result.err());
+
+        let output = result.unwrap();
+
+        // Expected exp(A*delta) from HTML
+        let expected_exp = arr2(&[
+            [1.8391, 0.9476, 0.7920, 0.8216, 0.7811],
+            [0.3359, 2.2262, 0.4013, 1.0078, 1.0957],
+            [0.6335, 0.6776, 2.6933, 1.6155, 1.8502],
+            [0.4804, 1.1561, 0.9110, 2.7461, 2.0854],
+            [0.7105, 1.4244, 1.8835, 1.0966, 3.4134],
+        ]);
+
+        // Expected integral from HTML
+        let expected_int = arr2(&[
+            [0.1347, 0.0352, 0.0284, 0.0272, 0.0231],
+            [0.0114, 0.1477, 0.0104, 0.0369, 0.0368],
+            [0.0218, 0.0178, 0.1624, 0.0580, 0.0619],
+            [0.0152, 0.0385, 0.0267, 0.1660, 0.0732],
+            [0.0240, 0.0503, 0.0679, 0.0317, 0.1863],
+        ]);
+
+        // Check exp_matrix with tolerance (HTML shows 4 decimal places, so use 5e-3)
+        for i in 0..5 {
+            for j in 0..5 {
+                assert!(
+                    (output.exp_matrix[(i, j)] - expected_exp[(i, j)]).abs() < 5e-3,
+                    "exp_matrix[{},{}]: got {}, expected {}",
+                    i,
+                    j,
+                    output.exp_matrix[(i, j)],
+                    expected_exp[(i, j)]
+                );
+            }
+        }
+
+        // Check exp_integral with tolerance
+        for i in 0..5 {
+            for j in 0..5 {
+                assert!(
+                    (output.exp_integral[(i, j)] - expected_int[(i, j)]).abs() < 5e-3,
+                    "exp_integral[{},{}]: got {}, expected {}",
+                    i,
+                    j,
+                    output.exp_integral[(i, j)],
+                    expected_int[(i, j)]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_mb05nd_zero_delta() {
+        let a = arr2(&[[1.0, 2.0], [3.0, 4.0]]);
+        let result = mb05nd(&a, 0.0, 1e-4);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+
+        // exp(A*0) = I
+        assert_eq!(output.exp_matrix[(0, 0)], 1.0);
+        assert_eq!(output.exp_matrix[(0, 1)], 0.0);
+        assert_eq!(output.exp_matrix[(1, 0)], 0.0);
+        assert_eq!(output.exp_matrix[(1, 1)], 1.0);
+
+        // integral should be zero
+        assert_eq!(output.exp_integral[(0, 0)], 0.0);
+        assert_eq!(output.exp_integral[(0, 1)], 0.0);
+        assert_eq!(output.exp_integral[(1, 0)], 0.0);
+        assert_eq!(output.exp_integral[(1, 1)], 0.0);
+    }
+
+    #[test]
+    fn test_mb05nd_scalar() {
+        // Test 1x1 matrix
+        let a = arr2(&[[2.0]]);
+        let delta = 0.5;
+        let result = mb05nd(&a, delta, 1e-4);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+
+        // exp(2.0 * 0.5) = exp(1.0) = e
+        let expected_exp = (1.0_f64).exp();
+        assert!((output.exp_matrix[(0, 0)] - expected_exp).abs() < 1e-10);
+
+        // integral: (exp(a*delta) - 1) / a = (e - 1) / 2
+        let expected_int = (expected_exp - 1.0) / 2.0;
+        assert!((output.exp_integral[(0, 0)] - expected_int).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_mb05nd_zero_matrix() {
+        let a = arr2(&[[0.0]]);
+        let delta = 0.5;
+        let result = mb05nd(&a, delta, 1e-4);
+        assert!(result.is_ok());
+
+        let output = result.unwrap();
+
+        // exp(0*0.5) = 1
+        assert_eq!(output.exp_matrix[(0, 0)], 1.0);
+
+        // integral: delta
+        assert_eq!(output.exp_integral[(0, 0)], delta);
+    }
+}
+
+/// Result structure for MB05ND computation
+#[derive(Debug, Clone)]
+pub struct Mb05ndResult {
+    /// Matrix exponential: exp(A*delta)
+    pub exp_matrix: Array2<f64>,
+    /// Integral of matrix exponential: Int[exp(A*s) ds] from s=0 to s=delta
+    pub exp_integral: Array2<f64>,
+}
+
+/// Computes the matrix exponential and its integral using Padé approximation.
+///
+/// This function computes:
+/// - F(delta) = exp(A*delta)
+/// - H(delta) = Int[exp(A*s) ds] from s = 0 to s = delta
+///
+/// where A is a real N×N matrix and delta is a scalar value.
+///
+/// # Arguments
+///
+/// * `a` - N×N input matrix
+/// * `delta` - Scalar parameter for the exponential
+/// * `tol` - Tolerance for determining the order of Padé approximation.
+///   A reasonable value is SQRT(machine epsilon) ≈ 1e-8 for f64
+///
+/// # Returns
+///
+/// * `Ok(Mb05ndResult)` - Structure containing exp_matrix and exp_integral
+/// * `Err(String)` - Error message if computation fails
+///
+/// # Algorithm
+///
+/// The routine uses a Padé approximation to H(t) for some small value of t
+/// (where 0 < t <= delta) and then calculates F(t) from H(t). Finally, the
+/// results are re-scaled to give F(delta) and H(delta) using the formulas:
+///
+/// - EXINT(2t) = EXINT(t) * EX(t) + EXINT(t)
+/// - EX(2t) = EX(t) * EX(t)
+///
+/// The algorithm requires O(N³) operations.
+///
+/// # Examples
+///
+/// ```
+/// use ndarray::arr2;
+/// use slicot_rs::mb::mb05nd;
+///
+/// let a = arr2(&[[1.0, 0.5], [0.0, 2.0]]);
+/// let delta = 0.1;
+/// let tol = 1e-4;
+///
+/// let result = mb05nd(&a, delta, tol).unwrap();
+/// println!("exp(A*delta) = \n{:?}", result.exp_matrix);
+/// println!("integral = \n{:?}", result.exp_integral);
+/// ```
+///
+/// # SLICOT Reference
+///
+/// This is a Rust translation of SLICOT routine MB05ND.
+///
+/// **Original Purpose**: To compute the matrix exponential exp(A*delta) and
+/// its integral for a real N-by-N matrix A and scalar delta.
+///
+/// **Reference**: `reference/src/MB05ND.f`
+///
+/// **Method**: Uses Padé approximation with scaling and squaring technique.
+/// See references:
+/// - [1] Benson, C.J. "The numerical evaluation of the matrix exponential and
+///   its integral." Report 82/03, Control Systems Research Group, 1982.
+/// - [2] Ward, R.C. "Numerical computation of the matrix exponential with
+///   accuracy estimate." SIAM J. Numer. Anal., 14, pp. 600-610, 1977.
+/// - [3] Moler, C.B. and Van Loan, C.F. "Nineteen Dubious Ways to Compute the
+///   Exponential of a Matrix." SIAM Rev., 20, pp. 801-836, 1978.
+pub fn mb05nd(a: &Array2<f64>, delta: f64, tol: f64) -> Result<Mb05ndResult, String> {
+    use ndarray::arr2;
+    use ndarray_linalg::Norm;
+
+    let n = a.nrows();
+
+    // Validate inputs
+    if n != a.ncols() {
+        return Err(format!("Matrix A must be square, got {}×{}", n, a.ncols()));
+    }
+
+    // Quick return for N=0
+    if n == 0 {
+        return Ok(Mb05ndResult {
+            exp_matrix: Array2::zeros((0, 0)),
+            exp_integral: Array2::zeros((0, 0)),
+        });
+    }
+
+    // Quick return for delta=0: exp(0) = I, integral = 0
+    if delta == 0.0 {
+        return Ok(Mb05ndResult {
+            exp_matrix: Array2::eye(n),
+            exp_integral: Array2::zeros((n, n)),
+        });
+    }
+
+    // Special case for N=1
+    if n == 1 {
+        let a_val = a[(0, 0)];
+        let exp_val = (delta * a_val).exp();
+        let int_val = if a_val == 0.0 {
+            delta
+        } else {
+            (exp_val - 1.0) / a_val
+        };
+
+        return Ok(Mb05ndResult {
+            exp_matrix: arr2(&[[exp_val]]),
+            exp_integral: arr2(&[[int_val]]),
+        });
+    }
+
+    // Machine parameters
+    let eps = f64::EPSILON;
+    let small = f64::MIN_POSITIVE / eps;
+
+    // Calculate Frobenius norm of A*delta
+    let mut fnorm = delta * a.norm();
+
+    // Check for overflow
+    if fnorm > (1.0 / small).sqrt() {
+        return Err(format!(
+            "DELTA * ||A|| is too large ({:.3e}), computation may overflow",
+            fnorm
+        ));
+    }
+
+    // Scaling phase: reduce fnorm to < 0.5
+    let mut jscal = 0_usize;
+    let mut delsc = delta;
+    while fnorm >= 0.5 {
+        jscal += 1;
+        delsc *= 0.5;
+        fnorm *= 0.5;
+    }
+
+    // Calculate the order of Padé approximation needed for tolerance
+    let fnorm2 = fnorm * fnorm;
+    let mut iq = 1_usize;
+    let mut qmax = fnorm / 3.0;
+    let mut err = (delta / delsc) * fnorm2 * fnorm2 / 4.8;
+
+    while err > tol * ((2 * iq + 3) as f64 - fnorm) / 1.64 && qmax >= eps {
+        iq += 1;
+        qmax *= ((iq + 1) as f64) * fnorm / ((2 * iq * (2 * iq + 1)) as f64);
+        if qmax >= eps {
+            err *= fnorm2 * ((2 * iq + 5) as f64)
+                / (((2 * iq + 3) * (2 * iq + 3) * (2 * iq + 4)) as f64);
+        }
+    }
+
+    // Initialize numerator and denominator
+    let i2iq1 = 2 * iq + 1;
+    let f2iq1 = i2iq1 as f64;
+    let mut coeffd = -(iq as f64) / f2iq1;
+    let mut coeffn = 0.5 / f2iq1;
+
+    // DWORK will contain successive powers of A*delsc
+    let mut dwork = a * delsc;
+
+    // Initialize numerator (EXINT) and denominator (EX)
+    let mut exint = Array2::eye(n) + &(&dwork * coeffn);
+    let mut ex = Array2::eye(n) + &(&dwork * coeffd);
+
+    // Build Padé approximation by computing successive powers
+    for kk in 2..=iq {
+        // Update coefficients
+        coeffd = -coeffd * ((iq + 1 - kk) as f64) / ((kk * (i2iq1 + 1 - kk)) as f64);
+        coeffn = if kk % 2 == 0 {
+            coeffd / ((kk + 1) as f64)
+        } else {
+            -coeffd / ((i2iq1 - kk) as f64)
+        };
+
+        // Compute next power: dwork = A * dwork * delsc
+        let temp = a.dot(&dwork) * delsc;
+        dwork.assign(&temp);
+
+        // Update numerator and denominator
+        exint = &exint + &(&dwork * coeffn);
+        ex = &ex + &(&dwork * coeffd);
+    }
+
+    // Solve EX * EXINT_result = EXINT for the columns of EXINT
+    // Use LAPACK DGESV to solve the linear system
+    use std::os::raw::c_int;
+
+    // LAPACK DGESV FFI binding
+    extern "C" {
+        fn dgesv_(
+            n: *const c_int,
+            nrhs: *const c_int,
+            a: *mut f64,
+            lda: *const c_int,
+            ipiv: *mut c_int,
+            b: *mut f64,
+            ldb: *const c_int,
+            info: *mut c_int,
+        );
+    }
+
+    // Prepare for DGESV call (column-major layout)
+    let n_i32 = n as c_int;
+
+    // Convert to column-major for LAPACK (manually to ensure contiguity)
+    let mut ex_col_major: Vec<f64> = Vec::with_capacity(n * n);
+    let mut exint_col_major: Vec<f64> = Vec::with_capacity(n * n);
+
+    // Copy column-by-column (Fortran column-major order)
+    for j in 0..n {
+        for i in 0..n {
+            ex_col_major.push(ex[[i, j]]);
+            exint_col_major.push(exint[[i, j]]);
+        }
+    }
+
+    let mut ipiv: Vec<c_int> = vec![0; n];
+    let mut info: c_int = 0;
+
+    unsafe {
+        dgesv_(
+            &n_i32,
+            &n_i32,
+            ex_col_major.as_mut_ptr(),
+            &n_i32,
+            ipiv.as_mut_ptr(),
+            exint_col_major.as_mut_ptr(),
+            &n_i32,
+            &mut info,
+        );
+    }
+
+    if info != 0 {
+        if info > 0 {
+            return Err(format!(
+                "Denominator of Padé approximation is singular at position {}",
+                info
+            ));
+        } else {
+            return Err(format!("Invalid parameter to DGESV at position {}", -info));
+        }
+    }
+
+    // Convert back from column-major to row-major
+    let mut exint_result = Array2::<f64>::zeros((n, n));
+    let mut idx = 0;
+    for j in 0..n {
+        for i in 0..n {
+            exint_result[[i, j]] = exint_col_major[idx];
+            idx += 1;
+        }
+    }
+    exint = exint_result;
+
+    // Form EX from EXINT: EX = EXINT * A * delsc + I
+    let exint_scaled = &exint * delsc;
+    ex = exint_scaled.dot(a) + Array2::<f64>::eye(n);
+
+    // Rescaling phase: apply squaring formulas jscal times
+    // EXINT(2t) = EXINT(t) * EX(t) + EXINT(t)
+    // EX(2t) = EX(t) * EX(t)
+    let mut exint_final = exint_scaled;
+    let mut ex_final = ex.clone();
+
+    for _ in 0..jscal {
+        let temp_int = exint_final.dot(&ex_final) + &exint_final;
+        let temp_ex = ex_final.dot(&ex_final);
+        exint_final = temp_int;
+        ex_final = temp_ex;
+    }
+
+    Ok(Mb05ndResult {
+        exp_matrix: ex_final,
+        exp_integral: exint_final,
+    })
 }
