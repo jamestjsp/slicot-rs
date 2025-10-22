@@ -295,6 +295,248 @@ fn apply_householder_similarity(a: &mut Array2<f64>, v: &Array1<f64>, tau: f64) 
 // have been removed as they are no longer needed. The LAPACK DGEHRD routine is now used for
 // Hessenberg reduction, which is more efficient and matches the original SLICOT implementation.
 
+/// Rowwise concatenation (parallel interconnection) of two systems in state-space form
+///
+/// Combines two systems with separate inputs but parallel outputs (rowwise concatenation).
+/// The second system's output equation can be scaled by a coefficient alpha.
+///
+/// # Arguments
+///
+/// * `a1` - N1×N1 state transition matrix for system 1
+/// * `b1` - N1×M1 input/state matrix for system 1
+/// * `c1` - P1×N1 state/output matrix for system 1
+/// * `d1` - P1×M1 input/output matrix for system 1
+/// * `a2` - N2×N2 state transition matrix for system 2
+/// * `b2` - N2×M2 input/state matrix for system 2
+/// * `c2` - P1×N2 state/output matrix for system 2
+/// * `d2` - P1×M2 input/output matrix for system 2
+/// * `alpha` - Scaling coefficient for system 2 output equation
+///
+/// # Returns
+///
+/// A tuple (A, B, C, D) representing the combined system state-space matrices:
+/// - `A`: (N1+N2)×(N1+N2) block diagonal state transition matrix [A1, 0; 0, A2]
+/// - `B`: (N1+N2)×(M1+M2) block diagonal input/state matrix [B1, 0; 0, B2]
+/// - `C`: P1×(N1+N2) concatenated state/output matrix [C1, alpha*C2]
+/// - `D`: P1×(M1+M2) concatenated input/output matrix [D1, alpha*D2]
+///
+/// # Examples
+///
+/// ```
+/// use slicot_rs::ab::ab05od;
+/// use ndarray::arr2;
+///
+/// // System 1: 2×2 state matrix, 1 input, 1 output
+/// let a1 = arr2(&[[1.0, 0.0], [0.0, -1.0]]);
+/// let b1 = arr2(&[[1.0], [1.0]]);
+/// let c1 = arr2(&[[1.0, 1.0]]);
+/// let d1 = arr2(&[[0.0]]);
+///
+/// // System 2: 2×2 state matrix, 1 input, 1 output
+/// let a2 = arr2(&[[0.0, 1.0], [-1.0, 0.0]]);
+/// let b2 = arr2(&[[0.0], [1.0]]);
+/// let c2 = arr2(&[[1.0, 0.0]]);
+/// let d2 = arr2(&[[1.0]]);
+///
+/// let alpha = 1.0;
+/// let (a, b, c, d) = ab05od(&a1, &b1, &c1, &d1, &a2, &b2, &c2, &d2, alpha).unwrap();
+///
+/// assert_eq!(a.shape(), &[4, 4]); // Combined state dimension: 2+2=4
+/// assert_eq!(b.shape(), &[4, 2]); // Combined inputs: 1+1=2
+/// assert_eq!(c.shape(), &[1, 4]); // Same outputs: 1
+/// assert_eq!(d.shape(), &[1, 2]); // Combined inputs: 1+1=2
+/// ```
+///
+/// # Algorithm
+///
+/// The routine performs rowwise concatenation (parallel interconnection on outputs
+/// with separate inputs) of two systems:
+///
+/// System 1:
+/// ```text
+/// X1' = A1*X1 + B1*U
+/// Y1  = C1*X1 + D1*U
+/// ```
+///
+/// System 2:
+/// ```text
+/// X2' = A2*X2 + B2*V
+/// Y2  = C2*X2 + D2*V
+/// ```
+///
+/// The combined system (with system 2 output scaled by alpha):
+/// ```text
+/// X'  = A*X + B*[U; V]
+/// Y   = C*X + D*[U; V]
+/// ```
+///
+/// where:
+/// ```text
+/// A = [A1   0 ]    B = [B1   0 ]
+///     [ 0  A2 ]        [ 0  B2 ]
+///
+/// C = [C1  alpha*C2]   D = [D1  alpha*D2]
+/// ```
+///
+/// This is a pure matrix assembly operation using ndarray slicing - no LAPACK calls needed.
+///
+/// # SLICOT Reference
+///
+/// This is a Rust translation of SLICOT routine AB05OD.
+///
+/// **Reference**: `reference/src/AB05OD.f`
+///
+/// **Differences from Fortran**:
+/// - Simplified API: no OVER parameter (always creates new output arrays)
+/// - Uses ndarray for matrix operations instead of raw pointers
+/// - Returns Result instead of INFO parameter
+/// - No workspace arrays needed (ndarray handles memory)
+#[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
+pub fn ab05od(
+    a1: &Array2<f64>,
+    b1: &Array2<f64>,
+    c1: &Array2<f64>,
+    d1: &Array2<f64>,
+    a2: &Array2<f64>,
+    b2: &Array2<f64>,
+    c2: &Array2<f64>,
+    d2: &Array2<f64>,
+    alpha: f64,
+) -> Result<(Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>), String> {
+    // Extract dimensions
+    let n1 = a1.nrows();
+    let m1 = b1.ncols();
+    let p1 = c1.nrows();
+    let n2 = a2.nrows();
+    let m2 = b2.ncols();
+
+    // Validate system 1 dimensions
+    if a1.ncols() != n1 {
+        return Err(format!("A1 must be square, got {}×{}", n1, a1.ncols()));
+    }
+    if b1.nrows() != n1 {
+        return Err(format!(
+            "B1 rows ({}) must match A1 dimension ({})",
+            b1.nrows(),
+            n1
+        ));
+    }
+    if c1.ncols() != n1 {
+        return Err(format!(
+            "C1 columns ({}) must match A1 dimension ({})",
+            c1.ncols(),
+            n1
+        ));
+    }
+    if d1.nrows() != p1 {
+        return Err(format!(
+            "D1 rows ({}) must match C1 rows ({})",
+            d1.nrows(),
+            p1
+        ));
+    }
+    if d1.ncols() != m1 {
+        return Err(format!(
+            "D1 columns ({}) must match B1 columns ({})",
+            d1.ncols(),
+            m1
+        ));
+    }
+
+    // Validate system 2 dimensions
+    if a2.ncols() != n2 {
+        return Err(format!("A2 must be square, got {}×{}", n2, a2.ncols()));
+    }
+    if b2.nrows() != n2 {
+        return Err(format!(
+            "B2 rows ({}) must match A2 dimension ({})",
+            b2.nrows(),
+            n2
+        ));
+    }
+    if c2.nrows() != p1 {
+        return Err(format!(
+            "C2 rows ({}) must match C1 rows ({})",
+            c2.nrows(),
+            p1
+        ));
+    }
+    if c2.ncols() != n2 {
+        return Err(format!(
+            "C2 columns ({}) must match A2 dimension ({})",
+            c2.ncols(),
+            n2
+        ));
+    }
+    if d2.nrows() != p1 {
+        return Err(format!(
+            "D2 rows ({}) must match C1 rows ({})",
+            d2.nrows(),
+            p1
+        ));
+    }
+    if d2.ncols() != m2 {
+        return Err(format!(
+            "D2 columns ({}) must match B2 columns ({})",
+            d2.ncols(),
+            m2
+        ));
+    }
+
+    // Combined dimensions
+    let n = n1 + n2;
+    let m = m1 + m2;
+
+    // Allocate output matrices
+    let mut a = Array2::zeros((n, n));
+    let mut b = Array2::zeros((n, m));
+    let mut c = Array2::zeros((p1, n));
+    let mut d = Array2::zeros((p1, m));
+
+    // Assemble A matrix: [A1  0]
+    //                    [0  A2]
+    if n1 > 0 {
+        a.slice_mut(s![0..n1, 0..n1]).assign(a1);
+    }
+    if n2 > 0 {
+        a.slice_mut(s![n1..n, n1..n]).assign(a2);
+    }
+
+    // Assemble B matrix: [B1  0]
+    //                    [0  B2]
+    if n1 > 0 && m1 > 0 {
+        b.slice_mut(s![0..n1, 0..m1]).assign(b1);
+    }
+    if n2 > 0 && m2 > 0 {
+        b.slice_mut(s![n1..n, m1..m]).assign(b2);
+    }
+
+    // Assemble C matrix: [C1  alpha*C2]
+    if p1 > 0 {
+        if n1 > 0 {
+            c.slice_mut(s![0..p1, 0..n1]).assign(c1);
+        }
+        if n2 > 0 {
+            // Scale C2 by alpha
+            c.slice_mut(s![0..p1, n1..n]).assign(&(c2 * alpha));
+        }
+    }
+
+    // Assemble D matrix: [D1  alpha*D2]
+    if p1 > 0 {
+        if m1 > 0 {
+            d.slice_mut(s![0..p1, 0..m1]).assign(d1);
+        }
+        if m2 > 0 {
+            // Scale D2 by alpha
+            d.slice_mut(s![0..p1, m1..m]).assign(&(d2 * alpha));
+        }
+    }
+
+    Ok((a, b, c, d))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,5 +650,197 @@ mod tests {
             ncont,
             b[(0, 0)]
         );
+    }
+
+    #[test]
+    fn test_ab05od_html_example() {
+        // Test data from AB05OD HTML documentation example
+        // System 1: N1=3, M1=2, P1=2
+        let a1 = ndarray::array![[1.0, 0.0, -1.0], [0.0, -1.0, 1.0], [1.0, 1.0, 2.0]];
+        let b1 = ndarray::array![[1.0, 2.0], [1.0, 0.0], [0.0, 1.0]];
+        let c1 = ndarray::array![[3.0, -2.0, 1.0], [0.0, 1.0, 0.0]];
+        let d1 = ndarray::array![[1.0, 0.0], [0.0, 1.0]];
+
+        // System 2: N2=3, M2=2, P1=2 (same output dimension)
+        let a2 = ndarray::array![[-3.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, -1.0, 2.0]];
+        let b2 = ndarray::array![[0.0, 1.0], [-1.0, 0.0], [0.0, 2.0]];
+        let c2 = ndarray::array![[1.0, 1.0, 0.0], [1.0, 1.0, -1.0]];
+        let d2 = ndarray::array![[1.0, 1.0], [0.0, 1.0]];
+
+        let alpha = 1.0;
+
+        let (a, b, c, d) = ab05od(&a1, &b1, &c1, &d1, &a2, &b2, &c2, &d2, alpha).unwrap();
+
+        // Expected A matrix (6×6 block diagonal)
+        let a_expected = ndarray::array![
+            [1.0, 0.0, -1.0, 0.0, 0.0, 0.0],
+            [0.0, -1.0, 1.0, 0.0, 0.0, 0.0],
+            [1.0, 1.0, 2.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, -3.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0, 0.0, 1.0],
+            [0.0, 0.0, 0.0, 0.0, -1.0, 2.0]
+        ];
+
+        // Expected B matrix (6×4 block diagonal)
+        let b_expected = ndarray::array![
+            [1.0, 2.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+            [0.0, 0.0, -1.0, 0.0],
+            [0.0, 0.0, 0.0, 2.0]
+        ];
+
+        // Expected C matrix (2×6: [C1, alpha*C2])
+        let c_expected = ndarray::array![
+            [3.0, -2.0, 1.0, 1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0, 1.0, 1.0, -1.0]
+        ];
+
+        // Expected D matrix (2×4: [D1, alpha*D2])
+        let d_expected = ndarray::array![[1.0, 0.0, 1.0, 1.0], [0.0, 1.0, 0.0, 1.0]];
+
+        // Verify dimensions
+        assert_eq!(a.shape(), &[6, 6]);
+        assert_eq!(b.shape(), &[6, 4]);
+        assert_eq!(c.shape(), &[2, 6]);
+        assert_eq!(d.shape(), &[2, 4]);
+
+        // Verify values with tolerance
+        let tol = 1e-10;
+        for i in 0..6 {
+            for j in 0..6 {
+                assert!(
+                    (a[(i, j)] - a_expected[(i, j)]).abs() < tol,
+                    "A[{}, {}] = {} != {} (expected)",
+                    i,
+                    j,
+                    a[(i, j)],
+                    a_expected[(i, j)]
+                );
+            }
+        }
+
+        for i in 0..6 {
+            for j in 0..4 {
+                assert!(
+                    (b[(i, j)] - b_expected[(i, j)]).abs() < tol,
+                    "B[{}, {}] = {} != {} (expected)",
+                    i,
+                    j,
+                    b[(i, j)],
+                    b_expected[(i, j)]
+                );
+            }
+        }
+
+        for i in 0..2 {
+            for j in 0..6 {
+                assert!(
+                    (c[(i, j)] - c_expected[(i, j)]).abs() < tol,
+                    "C[{}, {}] = {} != {} (expected)",
+                    i,
+                    j,
+                    c[(i, j)],
+                    c_expected[(i, j)]
+                );
+            }
+        }
+
+        for i in 0..2 {
+            for j in 0..4 {
+                assert!(
+                    (d[(i, j)] - d_expected[(i, j)]).abs() < tol,
+                    "D[{}, {}] = {} != {} (expected)",
+                    i,
+                    j,
+                    d[(i, j)],
+                    d_expected[(i, j)]
+                );
+            }
+        }
+
+        println!("AB05OD HTML example test passed");
+    }
+
+    #[test]
+    fn test_ab05od_alpha_scaling() {
+        // Test alpha scaling on a simple example
+        let a1 = ndarray::array![[1.0]];
+        let b1 = ndarray::array![[1.0]];
+        let c1 = ndarray::array![[1.0]];
+        let d1 = ndarray::array![[1.0]];
+
+        let a2 = ndarray::array![[2.0]];
+        let b2 = ndarray::array![[2.0]];
+        let c2 = ndarray::array![[2.0]];
+        let d2 = ndarray::array![[2.0]];
+
+        let alpha = 0.5;
+
+        let (a, b, c, d) = ab05od(&a1, &b1, &c1, &d1, &a2, &b2, &c2, &d2, alpha).unwrap();
+
+        // A and B should not be scaled
+        assert_eq!(a[(0, 0)], 1.0);
+        assert_eq!(a[(1, 1)], 2.0);
+        assert_eq!(b[(0, 0)], 1.0);
+        assert_eq!(b[(1, 1)], 2.0);
+
+        // C and D should have alpha scaling applied to second system
+        assert_eq!(c[(0, 0)], 1.0); // C1 unscaled
+        assert_eq!(c[(0, 1)], 1.0); // C2 * alpha = 2.0 * 0.5 = 1.0
+        assert_eq!(d[(0, 0)], 1.0); // D1 unscaled
+        assert_eq!(d[(0, 1)], 1.0); // D2 * alpha = 2.0 * 0.5 = 1.0
+    }
+
+    #[test]
+    fn test_ab05od_zero_dimensions() {
+        // Test with zero-dimensional subsystems
+        let a1 = ndarray::array![[1.0]];
+        let b1 = ndarray::array![[1.0]];
+        let c1 = ndarray::array![[1.0]];
+        let d1 = ndarray::array![[1.0]];
+
+        let a2 = Array2::zeros((0, 0));
+        let b2 = Array2::zeros((0, 0));
+        let c2 = Array2::zeros((1, 0));
+        let d2 = Array2::zeros((1, 0));
+
+        let alpha = 1.0;
+
+        let (a, b, c, d) = ab05od(&a1, &b1, &c1, &d1, &a2, &b2, &c2, &d2, alpha).unwrap();
+
+        // Should just return system 1 when system 2 has zero state dimension
+        assert_eq!(a.shape(), &[1, 1]);
+        assert_eq!(b.shape(), &[1, 1]);
+        assert_eq!(c.shape(), &[1, 1]);
+        assert_eq!(d.shape(), &[1, 1]);
+        assert_eq!(a[(0, 0)], 1.0);
+        assert_eq!(b[(0, 0)], 1.0);
+        assert_eq!(c[(0, 0)], 1.0);
+        assert_eq!(d[(0, 0)], 1.0);
+    }
+
+    #[test]
+    fn test_ab05od_dimension_mismatch() {
+        // Test error handling for dimension mismatches
+        let a1 = ndarray::array![[1.0, 0.0], [0.0, 1.0]];
+        let b1 = ndarray::array![[1.0], [1.0]];
+        let c1 = ndarray::array![[1.0, 1.0]];
+        let d1 = ndarray::array![[1.0]];
+
+        let a2 = ndarray::array![[1.0]];
+        let b2 = ndarray::array![[1.0]];
+        // C2 has wrong number of outputs (should be 1 to match C1)
+        let c2_wrong = ndarray::array![[1.0], [1.0]]; // 2×1 instead of 1×1
+        let d2 = ndarray::array![[1.0]];
+
+        let alpha = 1.0;
+
+        let result = ab05od(&a1, &b1, &c1, &d1, &a2, &b2, &c2_wrong, &d2, alpha);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("C2 rows (2) must match C1 rows (1)"));
     }
 }
